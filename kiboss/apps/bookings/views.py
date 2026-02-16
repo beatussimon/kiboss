@@ -3,6 +3,7 @@ Views for KIBOSS Booking API
 """
 
 import logging
+import re
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -17,6 +18,12 @@ from kiboss.apps.bookings.services import BookingService, BookingError
 from kiboss.apps.rbac.permissions import RoleBasedPermission
 
 logger = logging.getLogger(__name__)
+
+# UUID pattern for validation
+UUID_PATTERN = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    re.IGNORECASE
+)
 
 
 class BookingViewSet(viewsets.ViewSet):
@@ -35,6 +42,19 @@ class BookingViewSet(viewsets.ViewSet):
     
     permission_classes = [RoleBasedPermission]
     required_permission = 'BOOKING_VIEW'
+    
+    @action(detail=False, methods=['get'])
+    def new(self, request):
+        """
+        Return an empty booking form template for creating a new booking.
+        This endpoint is used by the frontend to initialize a new booking.
+        """
+        return Response({
+            'message': 'Use POST /api/v1/bookings/ to create a new booking',
+            'allowed_params': [
+                'asset_id', 'start_time', 'end_time', 'quantity', 'notes'
+            ]
+        })
     
     def list(self, request):
         """List user's bookings with optional filtering."""
@@ -59,8 +79,15 @@ class BookingViewSet(viewsets.ViewSet):
     
     def retrieve(self, request, pk=None):
         """Get booking details."""
+        # Handle non-UUID pk values (like 'new') - return 404 instead of 500
+        if pk and not UUID_PATTERN.match(str(pk)):
+            return Response(
+                {'error': 'Booking not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
         try:
-            booking = Booking.objects.get(pk=pk)
+            booking = Booking.objects.select_related('asset', 'asset__owner').get(pk=pk)
         except Booking.DoesNotExist:
             return Response(
                 {'error': 'Booking not found'},
@@ -251,6 +278,11 @@ class BookingViewSet(viewsets.ViewSet):
                 {'error': 'Booking not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to fetch booking: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         # Check permission
         if booking.renter != request.user and booking.asset.owner != request.user:
@@ -259,6 +291,12 @@ class BookingViewSet(viewsets.ViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        timeline = booking.timeline_events.all().order_by('created_at')
-        serializer = BookingTimelineSerializer(timeline, many=True)
-        return Response(serializer.data)
+        try:
+            timeline = booking.timeline_events.all().order_by('created_at')
+            serializer = BookingTimelineSerializer(timeline, many=True)
+            return Response(serializer.data)
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to fetch timeline: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

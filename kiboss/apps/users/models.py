@@ -21,6 +21,49 @@ DEFAULT_TRUST_SCORE = Decimal('50.00')
 DEFAULT_OVERALL_SCORE = Decimal('50.00')
 
 
+class VerificationTier:
+    """Verification tier constants for user verification levels."""
+    NONE = 'none'
+    BASIC = 'basic'
+    PREMIUM = 'premium'
+    GOLD = 'gold'
+    
+    CHOICES = [
+        (NONE, 'None'),
+        (BASIC, 'Basic'),
+        (PREMIUM, 'Premium'),
+        (GOLD, 'Gold'),
+    ]
+    
+    # Tier thresholds
+    GOLD_THRESHOLD = 95.0  # Trust score threshold for gold
+    PREMIUM_THRESHOLD = 80.0  # Trust score threshold for premium
+    BASIC_THRESHOLD = 50.0  # Trust score threshold for basic
+    
+    @classmethod
+    def get_tier(cls, trust_score):
+        """Get verification tier based on trust score."""
+        score = float(trust_score) if trust_score else 0
+        if score >= cls.GOLD_THRESHOLD:
+            return cls.GOLD
+        elif score >= cls.PREMIUM_THRESHOLD:
+            return cls.PREMIUM
+        elif score >= cls.BASIC_THRESHOLD:
+            return cls.BASIC
+        return cls.NONE
+    
+    @classmethod
+    def get_badge_color(cls, tier):
+        """Get badge color for verification tier."""
+        colors = {
+            cls.GOLD: 'gold',
+            cls.PREMIUM: 'blue',
+            cls.BASIC: 'gray',
+            cls.NONE: None
+        }
+        return colors.get(tier)
+
+
 class UserManager(BaseUserManager):
     """Custom user manager for User model."""
     
@@ -71,6 +114,13 @@ class User(AbstractUser):
     is_email_verified = models.BooleanField(default=False)
     is_phone_verified = models.BooleanField(default=False)
     is_identity_verified = models.BooleanField(default=False)
+    
+    # Verification tier (manual override for special users)
+    verification_tier = models.CharField(
+        max_length=20,
+        choices=VerificationTier.CHOICES,
+        default=VerificationTier.NONE
+    )
     
     # Trust and reputation
     trust_score = models.DecimalField(max_digits=5, decimal_places=2, default=DEFAULT_TRUST_SCORE)
@@ -124,6 +174,27 @@ class User(AbstractUser):
     def is_verified(self):
         """Check if user meets verification threshold."""
         return self.is_email_verified and self.is_phone_verified
+    
+    @property
+    def verification_badge(self):
+        """Get the verification badge info for this user."""
+        # If manual tier is set, use it
+        if self.verification_tier and self.verification_tier != VerificationTier.NONE:
+            return {
+                'tier': self.verification_tier,
+                'color': VerificationTier.get_badge_color(self.verification_tier)
+            }
+        # Otherwise calculate from trust score
+        tier = VerificationTier.get_tier(self.trust_score)
+        return {
+            'tier': tier,
+            'color': VerificationTier.get_badge_color(tier)
+        }
+    
+    @property
+    def has_verification_badge(self):
+        """Check if user has any verification badge."""
+        return self.verification_badge['color'] is not None
 
 
 class UserProfile(models.Model):

@@ -9,8 +9,28 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from .models import User, UserProfile
 
 
-class UserSerializer(serializers.ModelSerializer):
-    """Serializer for User model."""
+class UserProfileSerializer(serializers.ModelSerializer):
+    """Serializer for UserProfile model."""
+    
+    class Meta:
+        model = UserProfile
+        fields = [
+            'id', 'phone', 'avatar', 'bio', 'date_of_birth',
+            'address', 'city', 'state', 'country', 'postal_code',
+            'latitude', 'longitude',
+            'timezone', 'language', 'currency',
+            'notification_settings',
+            'total_bookings', 'total_listings',
+            'total_rides_as_driver', 'total_rides_as_passenger',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'total_bookings', 'total_listings', 'total_rides_as_driver', 'total_rides_as_passenger', 'created_at', 'updated_at']
+
+
+class UserWithProfileSerializer(serializers.ModelSerializer):
+    """Serializer for User model with profile data."""
+    profile = UserProfileSerializer(read_only=True)
+    verification_badge = serializers.SerializerMethodField()
     
     class Meta:
         model = User
@@ -18,8 +38,33 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'email', 'first_name', 'last_name',
             'is_email_verified', 'is_phone_verified', 'is_identity_verified',
             'trust_score', 'total_ratings_count', 'is_blocked',
+            'verification_tier', 'verification_badge',
+            'profile',
         ]
-        read_only_fields = ['id', 'is_email_verified', 'is_phone_verified', 'is_identity_verified', 'trust_score', 'total_ratings_count', 'is_blocked']
+        read_only_fields = ['id', 'is_email_verified', 'is_phone_verified', 'is_identity_verified', 'trust_score', 'total_ratings_count', 'is_blocked', 'verification_badge']
+    
+    def get_verification_badge(self, obj):
+        """Get verification badge info."""
+        return obj.verification_badge
+
+
+class UserSerializer(serializers.ModelSerializer):
+    """Serializer for User model."""
+    verification_badge = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        fields = [
+            'id', 'email', 'first_name', 'last_name',
+            'is_email_verified', 'is_phone_verified', 'is_identity_verified',
+            'trust_score', 'total_ratings_count', 'is_blocked',
+            'verification_tier', 'verification_badge',
+        ]
+        read_only_fields = ['id', 'is_email_verified', 'is_phone_verified', 'is_identity_verified', 'trust_score', 'total_ratings_count', 'is_blocked', 'verification_badge']
+    
+    def get_verification_badge(self, obj):
+        """Get verification badge info."""
+        return obj.verification_badge
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -86,3 +131,48 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         token['email'] = user.email
         token['user_id'] = str(user.id)
         return token
+
+
+class PublicUserSerializer(serializers.ModelSerializer):
+    """Serializer for public user profile (used for viewing other users)."""
+    verification_badge = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        fields = [
+            'id', 'first_name', 'last_name',
+            'is_email_verified', 'is_phone_verified', 'is_identity_verified',
+            'trust_score', 'total_ratings_count',
+            'verification_tier', 'verification_badge',
+        ]
+    
+    def get_verification_badge(self, obj):
+        """Get verification badge info."""
+        return obj.verification_badge
+    
+    def to_representation(self, instance):
+        """Add profile data to the response."""
+        data = super().to_representation(instance)
+        # Add profile data if available
+        if hasattr(instance, 'profile') and instance.profile:
+            data['avatar'] = instance.profile.avatar.url if instance.profile.avatar else None
+            data['bio'] = instance.profile.bio or ''
+            data['location'] = f"{instance.profile.city or ''}, {instance.profile.country or ''}".strip() or 'Location not set'
+        else:
+            data['avatar'] = None
+            data['bio'] = ''
+            data['location'] = 'Location not set'
+        
+        # Add date joined
+        data['date_joined'] = instance.date_joined.isoformat() if instance.date_joined else None
+        
+        # Add empty arrays for listings, rides, reviews (these would need separate API calls)
+        data['listings'] = []
+        data['rides'] = []
+        data['reviews'] = []
+        data['rating'] = float(instance.trust_score) / 20 if instance.trust_score else 0
+        data['review_count'] = instance.total_ratings_count
+        data['is_following'] = False
+        data['username'] = instance.email.split('@')[0] if instance.email else ''
+        
+        return data

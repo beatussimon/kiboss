@@ -6,6 +6,7 @@ from rest_framework import serializers
 from django.utils import timezone
 from kiboss.apps.bookings.models import Booking, BookingStatus, BookingTimeline, BookingStatusTransition
 from kiboss.apps.assets.serializers import AssetSummarySerializer
+from kiboss.apps.users.serializers import UserSerializer
 
 
 class BookingStatusTransitionSerializer(serializers.ModelSerializer):
@@ -73,6 +74,7 @@ class BookingResponseSerializer(serializers.ModelSerializer):
     """Serializer for booking responses."""
     
     asset = AssetSummarySerializer(read_only=True)
+    owner = serializers.SerializerMethodField()
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     duration_hours = serializers.SerializerMethodField()
     can_cancel = serializers.SerializerMethodField()
@@ -82,7 +84,7 @@ class BookingResponseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Booking
         fields = [
-            'id', 'asset', 'status', 'status_display',
+            'id', 'asset', 'owner', 'status', 'status_display',
             'start_time', 'end_time', 'duration_hours', 'quantity',
             'unit_price', 'subtotal', 'service_fee', 'taxes',
             'total_price', 'currency', 'price_breakdown',
@@ -93,6 +95,12 @@ class BookingResponseSerializer(serializers.ModelSerializer):
             'can_cancel', 'can_start', 'can_complete'
         ]
         read_only_fields = fields
+    
+    def get_owner(self, obj):
+        """Get the owner from the asset."""
+        if hasattr(obj, 'asset') and obj.asset:
+            return UserSerializer(obj.asset.owner).data
+        return None
     
     def get_duration_hours(self, obj):
         return obj.get_duration_hours()

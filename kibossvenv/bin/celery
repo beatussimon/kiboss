@@ -1,4 +1,4 @@
-#!/home/bea/kiboss/kibossvenv/bin/python3
+#!/home/bea/kiboss/backend/kibossvenv/bin/python3
 # -*- coding: utf-8 -*-
 import re
 import sys

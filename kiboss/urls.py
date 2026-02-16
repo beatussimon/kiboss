@@ -4,11 +4,13 @@ URL configuration for kiboss project.
 KIBOSS - Universal Rental & Sharing Operating System
 """
 
-from django.contrib import admin
 from django.urls import path, include
 from django.http import JsonResponse
 from rest_framework_simplejwt.views import TokenRefreshView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+
+# Use custom admin site
+from kiboss.apps.core.admin import admin_site
 
 
 def api_root(request):
@@ -38,8 +40,11 @@ def api_root(request):
 
 
 urlpatterns = [
-    # Admin
-    path('admin/', admin.site.urls),
+    # Admin - using custom admin site with dashboard
+    path('admin/', admin_site.urls),
+    
+    # API v1 - Root
+    path('api/v1/', api_root, name='api-root'),
     
     # API v1 - Root
     path('api/v1/', api_root, name='api-root'),
@@ -58,7 +63,7 @@ urlpatterns = [
     path('api/v1/contracts/', include('kiboss.apps.contracts.urls')),
     path('api/v1/payments/', include('kiboss.apps.payments.urls')),
     path('api/v1/rides/', include('kiboss.apps.rides.urls')),
-    path('api/v1/messages/', include('kiboss.apps.messaging.urls')),
+    path('api/v1/messaging/', include('kiboss.apps.messaging.urls')),
     path('api/v1/ratings/', include('kiboss.apps.ratings.urls')),
     path('api/v1/notifications/', include('kiboss.apps.notifications.urls')),
     path('api/v1/social/', include('kiboss.apps.social.urls')),

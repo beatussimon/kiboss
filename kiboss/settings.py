@@ -31,6 +31,7 @@ INSTALLED_APPS = [
     'corsheaders',
     
     # KIBOSS apps
+    'kiboss.apps.core',
     'kiboss.apps.users',
     'kiboss.apps.assets',
     'kiboss.apps.bookings',
@@ -136,6 +137,8 @@ REST_FRAMEWORK = {
         'anon': '100/hour',
         'user': '1000/hour',
     },
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
     'EXCEPTION_HANDLER': 'kiboss.apps.common.exceptions.custom_exception_handler',
 }
 
@@ -145,6 +148,7 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
+    'TOKEN_BLACKLIST_ENABLED': True,
     'UPDATE_LAST_LOGIN': True,
     'ALGORITHM': 'HS256',  # Changed from RS256 for simpler setup
     'SIGNING_KEY': SECRET_KEY,

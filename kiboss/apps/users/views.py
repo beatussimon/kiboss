@@ -1,0 +1,92 @@
+"""
+Views for Users API
+"""
+
+from rest_framework import status
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser
+
+from .models import User, UserProfile
+from .serializers import UserWithProfileSerializer, UserProfileSerializer, PublicUserSerializer
+
+
+class CurrentUserView(APIView):
+    """
+    API endpoint for getting and updating the current authenticated user.
+    
+    GET /api/v1/users/me/
+    PATCH /api/v1/users/me/
+    """
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    
+    def get(self, request):
+        """Get current user profile."""
+        user = request.user
+        serializer = UserWithProfileSerializer(user)
+        return Response(serializer.data)
+    
+    def patch(self, request):
+        """Update current user profile."""
+        user = request.user
+        
+        # Separate user data from profile data
+        user_data = {}
+        profile_data = {}
+        
+        for key, value in request.data.items():
+            if key in ['first_name', 'last_name']:
+                user_data[key] = value
+            elif key in ['phone', 'bio', 'avatar', 'address', 'city', 'state', 'country', 'postal_code']:
+                profile_data[key] = value
+        
+        # Update user fields
+        if user_data:
+            user_serializer = UserWithProfileSerializer(user, data=user_data, partial=True)
+            if user_serializer.is_valid():
+                user_serializer.save()
+            else:
+                return Response(
+                    {'error': 'Failed to update user', 'details': user_serializer.errors},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Update or create profile
+        profile, created = UserProfile.objects.get_or_create(user=user)
+        if profile_data:
+            profile_serializer = UserProfileSerializer(profile, data=profile_data, partial=True)
+            if profile_serializer.is_valid():
+                profile_serializer.save()
+            else:
+                return Response(
+                    {'error': 'Failed to update profile', 'details': profile_serializer.errors},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Return updated user with profile
+        serializer = UserWithProfileSerializer(user)
+        return Response(serializer.data)
+
+
+class PublicUserView(APIView):
+    """
+    API endpoint for getting public user profiles.
+    
+    GET /api/v1/users/{user_id}/public/
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, user_id):
+        """Get public user profile."""
+        try:
+            user = User.objects.select_related('profile').get(id=user_id)
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'User not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        serializer = PublicUserSerializer(user)
+        return Response(serializer.data)
