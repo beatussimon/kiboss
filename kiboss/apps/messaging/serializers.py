@@ -3,6 +3,7 @@ Serializers for Messaging API
 """
 from rest_framework import serializers
 from kiboss.apps.messaging.models import Thread, Message, MessageAttachment
+from kiboss.apps.users.models import User
 
 
 class MessageAttachmentSerializer(serializers.ModelSerializer):
@@ -21,7 +22,10 @@ class CreateAttachmentSerializer(serializers.Serializer):
     """Serializer for uploading attachments."""
     message = serializers.UUIDField()
     file = serializers.FileField()
-    file_type = serializers.ChoiceField(choices=MessageAttachment.ATTACHMENT_TYPES)
+    file_type = serializers.ChoiceField(
+        choices=MessageAttachment.ATTACHMENT_TYPES,
+        required=False
+    )
     
     def validate_file(self, value):
         """Validate file size."""
@@ -78,7 +82,7 @@ class ThreadParticipantSerializer(serializers.ModelSerializer):
     avatar = serializers.URLField(read_only=True)
     
     class Meta:
-        model = 'users.User'
+        model = User
         fields = ['id', 'email', 'first_name', 'last_name', 'avatar']
 
 
@@ -92,7 +96,7 @@ class ThreadSerializer(serializers.ModelSerializer):
         model = Thread
         fields = [
             'id', 'thread_type', 'subject', 'status',
-            'participants', 'booking', 'ride',
+            'participants', 'context_type', 'context_id', 'booking', 'ride',
             'message_count', 'last_message', 'unread_count',
             'is_flagged', 'flagged_reason',
             'auto_lock_after_completion', 'locked_at',

@@ -5,17 +5,17 @@ Views for KIBOSS Booking API
 import logging
 import re
 from rest_framework import viewsets, status
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import transaction
 from kiboss.apps.bookings.models import Booking
 from kiboss.apps.bookings.serializers import (
     BookingCreateSerializer, BookingResponseSerializer,
-    BookingListSerializer, BookingUpdateSerializer,
+    BookingUpdateSerializer,
     BookingCancelSerializer, BookingCompleteSerializer, BookingTimelineSerializer
 )
 from kiboss.apps.bookings.services import BookingService, BookingError
-from kiboss.apps.rbac.permissions import RoleBasedPermission
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +40,7 @@ class BookingViewSet(viewsets.ViewSet):
     - GET /bookings/{id}/timeline/ - Get booking timeline
     """
     
-    permission_classes = [RoleBasedPermission]
-    required_permission = 'BOOKING_VIEW'
+    permission_classes = [IsAuthenticated]
     
     @action(detail=False, methods=['get'])
     def new(self, request):
@@ -74,7 +73,7 @@ class BookingViewSet(viewsets.ViewSet):
             queryset = queryset.filter(asset_id=asset_id)
         
         queryset = queryset.order_by('-created_at')
-        serializer = BookingListSerializer(queryset, many=True)
+        serializer = BookingResponseSerializer(queryset, many=True)
         return Response(serializer.data)
     
     def retrieve(self, request, pk=None):
@@ -97,8 +96,8 @@ class BookingViewSet(viewsets.ViewSet):
         # Check permission
         if booking.renter != request.user and booking.asset.owner != request.user:
             return Response(
-                {'error': 'Permission denied'},
-                status=status.HTTP_403_FORBIDDEN
+                {'error': 'Booking not found'},
+                status=status.HTTP_404_NOT_FOUND
             )
         
         serializer = BookingResponseSerializer(booking)
@@ -159,6 +158,23 @@ class BookingViewSet(viewsets.ViewSet):
         response_serializer = BookingResponseSerializer(booking)
         return Response(response_serializer.data)
     
+    @action(detail=True, methods=['post'])
+    def confirm(self, request, pk=None):
+        """Confirm a booking (legacy compatibility endpoint)."""
+        try:
+            booking = Booking.objects.get(pk=pk)
+        except Booking.DoesNotExist:
+            return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if booking.renter != request.user and booking.asset.owner != request.user:
+            return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            booking = BookingService.confirm_booking(booking_id=pk, actor=request.user)
+            return Response(BookingResponseSerializer(booking).data)
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
     @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):
         """Cancel a booking."""
@@ -267,6 +283,91 @@ class BookingViewSet(viewsets.ViewSet):
                 {'error': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+    @action(detail=True, methods=['post'])
+    def confirm_payment(self, request, pk=None):
+        """Authorize payment and move booking into confirmed state."""
+        from kiboss.apps.payments.models import Payment
+
+        try:
+            booking = Booking.objects.get(pk=pk)
+        except Booking.DoesNotExist:
+            return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if booking.renter != request.user:
+            return Response({'error': 'Only the renter can confirm payment'}, status=status.HTTP_403_FORBIDDEN)
+
+        payment, _ = Payment.objects.get_or_create(
+            booking=booking,
+            defaults={
+                'amount': booking.total_price,
+                'currency': booking.currency,
+                'payment_method': 'CREDIT_CARD',
+            }
+        )
+
+        payment.authorize(payment.amount, {'last_four': '4242', 'brand': 'VISA'})
+        payment.hold_in_escrow()
+
+        if booking.status == 'PENDING':
+            booking = BookingService.confirm_booking(booking_id=booking.id, actor=request.user)
+
+        booking.payment = payment
+        booking.save(update_fields=['payment', 'updated_at'])
+        return Response(BookingResponseSerializer(booking).data)
+
+    @action(detail=True, methods=['post'])
+    def accept_contract(self, request, pk=None):
+        """Record contract acceptance (compatibility endpoint)."""
+        try:
+            booking = Booking.objects.get(pk=pk)
+        except Booking.DoesNotExist:
+            return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if booking.renter != request.user and booking.asset.owner != request.user:
+            return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
+
+        if booking.status == 'PENDING' and booking.payment_id:
+            booking = BookingService.confirm_booking(booking_id=booking.id, actor=request.user)
+
+        return Response(BookingResponseSerializer(booking).data)
+
+    @action(detail=True, methods=['post'])
+    def dispute(self, request, pk=None):
+        """Raise a booking dispute and freeze associated payment."""
+        from kiboss.apps.payments.models import Dispute
+
+        try:
+            booking = Booking.objects.get(pk=pk)
+        except Booking.DoesNotExist:
+            return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if booking.renter != request.user and booking.asset.owner != request.user:
+            return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
+
+        if not booking.payment_id:
+            return Response({'error': 'Cannot dispute booking without payment'}, status=status.HTTP_400_BAD_REQUEST)
+
+        reason = request.data.get('reason', 'OTHER')
+        description = request.data.get('description', '')
+        disputed_amount = request.data.get('disputed_amount') or booking.total_price
+
+        dispute, _ = Dispute.objects.get_or_create(
+            booking=booking,
+            payment=booking.payment,
+            defaults={
+                'initiated_by': request.user,
+                'reason': reason,
+                'description': description or 'Dispute opened',
+                'disputed_amount': disputed_amount,
+            }
+        )
+
+        booking.payment.freeze_for_dispute()
+        if booking.status != 'DISPUTED':
+            booking.transition_to('DISPUTED', actor_type='USER', actor_id=request.user.id, reason='Dispute raised')
+
+        return Response(BookingResponseSerializer(booking).data, status=status.HTTP_200_OK)
     
     @action(detail=True, methods=['get'])
     def timeline(self, request, pk=None):

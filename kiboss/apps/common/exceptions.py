@@ -3,9 +3,8 @@ Custom exception handler for KIBOSS API.
 """
 
 import uuid
+from django.utils import timezone
 from rest_framework.views import exception_handler
-from rest_framework.response import Response
-from rest_framework import status
 
 
 def custom_exception_handler(exc, context):
@@ -16,6 +15,11 @@ def custom_exception_handler(exc, context):
     response = exception_handler(exc, context)
     
     if response is not None:
+        # Keep field-level validation errors flat for client compatibility.
+        if hasattr(exc, 'detail') and isinstance(exc.detail, dict):
+            response.data = exc.detail
+            return response
+
         # Generate request ID
         request = context.get('request')
         request_id = getattr(request, 'request_id', str(uuid.uuid4()))
@@ -37,6 +41,3 @@ def custom_exception_handler(exc, context):
         response.data = error_data
     
     return response
-
-
-from django.utils import timezone

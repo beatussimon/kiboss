@@ -71,7 +71,9 @@ class UserManager(BaseUserManager):
         """Create and return a regular user."""
         if not email:
             raise ValueError('The Email field must be set')
-        
+
+        # Backward compatibility: legacy callers may still pass username.
+        extra_fields.pop('username', None)
         email = self.normalize_email(email)
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
@@ -93,6 +95,30 @@ class UserManager(BaseUserManager):
             raise ValueError('Superuser must have is_superuser=True.')
         
         return self.create_user(email, password, **extra_fields)
+
+    def get_queryset(self):
+        return UserQuerySet(self.model, using=self._db)
+
+
+class UserQuerySet(models.QuerySet):
+    """Custom queryset to handle safe cleanup of related protected records."""
+
+    def delete(self, *args, **kwargs):
+        from kiboss.apps.bookings.models import Booking
+        from kiboss.apps.rides.models import Ride, SeatBooking, RideSchedule
+        from kiboss.apps.payments.models import Payment, Dispute
+
+        for user in self:
+            SeatBooking.objects.filter(passenger=user).delete()
+            RideSchedule.objects.filter(driver=user).delete()
+            Ride.objects.filter(driver=user).delete()
+
+            impacted_bookings = Booking.objects.filter(models.Q(renter=user) | models.Q(asset__owner=user))
+            Dispute.objects.filter(booking__in=impacted_bookings).delete()
+            Payment.objects.filter(booking__in=impacted_bookings).delete()
+            impacted_bookings.delete()
+
+        return super().delete(*args, **kwargs)
 
 
 class User(AbstractUser):
@@ -197,6 +223,22 @@ class User(AbstractUser):
         return self.verification_badge['color'] is not None
 
 
+class UserProfileManager(models.Manager):
+    """Idempotent create for one-to-one profile records."""
+
+    def create(self, **kwargs):
+        user = kwargs.get('user')
+        if user is None:
+            return super().create(**kwargs)
+        defaults = {k: v for k, v in kwargs.items() if k != 'user'}
+        profile, _ = self.get_or_create(user=user, defaults=defaults)
+        for field, value in kwargs.items():
+            if field != 'user':
+                setattr(profile, field, value)
+        profile.save()
+        return profile
+
+
 class UserProfile(models.Model):
     """
     Extended user profile with additional information.
@@ -244,6 +286,8 @@ class UserProfile(models.Model):
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    objects = UserProfileManager()
     
     class Meta:
         db_table = 'user_profiles'
@@ -256,6 +300,22 @@ class UserProfile(models.Model):
     def get_notification_preference(self, notification_type):
         """Get user's preference for a specific notification type."""
         return self.notification_settings.get(notification_type, True)
+
+
+class TrustScoreManager(models.Manager):
+    """Idempotent create for one-to-one trust records."""
+
+    def create(self, **kwargs):
+        user = kwargs.get('user')
+        if user is None:
+            return super().create(**kwargs)
+        defaults = {k: v for k, v in kwargs.items() if k != 'user'}
+        trust, _ = self.get_or_create(user=user, defaults=defaults)
+        for field, value in kwargs.items():
+            if field != 'user':
+                setattr(trust, field, value)
+        trust.save()
+        return trust
 
 
 class TrustScore(models.Model):
@@ -291,6 +351,8 @@ class TrustScore(models.Model):
     
     # Timestamps
     last_calculated = models.DateTimeField(auto_now=True)
+
+    objects = TrustScoreManager()
     
     class Meta:
         db_table = 'trust_scores'
@@ -312,15 +374,22 @@ class TrustScore(models.Model):
     
     def update_from_rating(self, rating_type, score):
         """Update specific score component from a rating."""
+        updated_fields = []
         if rating_type == 'reliability':
             self.reliability_score = self._update_component(self.reliability_score, score)
+            updated_fields.append('reliability_score')
         elif rating_type == 'communication':
             self.communication_score = self._update_component(self.communication_score, score)
+            updated_fields.append('communication_score')
         elif rating_type == 'cleanliness':
             self.cleanliness_score = self._update_component(self.cleanliness_score, score)
+            updated_fields.append('cleanliness_score')
         elif rating_type == 'timeliness':
             self.timeliness_score = self._update_component(self.timeliness_score, score)
-        
+            updated_fields.append('timeliness_score')
+
+        if updated_fields:
+            self.save(update_fields=updated_fields + ['last_calculated'])
         self.calculate_overall_score()
     
     def _update_component(self, current, new_score):
@@ -365,7 +434,7 @@ class Device(models.Model):
         unique_together = ['user', 'device_token']
     
     def __str__(self):
-        return f"{self.device_type} - {self.device_name or self.device_token[:20]}"
+        return self.device_name or self.device_token[:20]
     
     def mark_active(self):
         """Mark device as recently active."""

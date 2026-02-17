@@ -105,6 +105,7 @@ class RideSerializer(serializers.ModelSerializer):
     driver = UserSerializer(read_only=True)
     driver_email = serializers.EmailField(source='driver.email', read_only=True)
     vehicle_asset = AssetSerializer(read_only=True)
+    vehicle_asset_id = serializers.UUIDField(write_only=True, required=False)
     available_seats = serializers.SerializerMethodField()
     stops = RideStopSerializer(many=True, read_only=True)
     
@@ -112,6 +113,7 @@ class RideSerializer(serializers.ModelSerializer):
         model = Ride
         fields = [
             'id', 'driver', 'driver_email', 'vehicle_asset',
+            'vehicle_asset_id',
             'status', 'route_name', 'origin', 'destination',
             'waypoints', 'departure_time', 'estimated_arrival',
             'actual_arrival', 'is_recurring', 'recurring_pattern',
@@ -126,6 +128,18 @@ class RideSerializer(serializers.ModelSerializer):
     
     def get_available_seats(self, obj):
         return obj.get_available_seats()
+
+    def validate(self, attrs):
+        vehicle_asset_id = attrs.pop('vehicle_asset_id', None)
+        if vehicle_asset_id:
+            from kiboss.apps.assets.models import Asset
+            try:
+                attrs['vehicle_asset'] = Asset.objects.get(id=vehicle_asset_id)
+            except Asset.DoesNotExist as exc:
+                raise serializers.ValidationError({'vehicle_asset_id': 'Vehicle asset not found'}) from exc
+        if self.instance is None and 'vehicle_asset' not in attrs:
+            raise serializers.ValidationError({'vehicle_asset_id': 'vehicle_asset_id is required'})
+        return attrs
 
 
 class RideListSerializer(serializers.ModelSerializer):
@@ -151,11 +165,13 @@ class RideListSerializer(serializers.ModelSerializer):
 class RideScheduleSerializer(serializers.ModelSerializer):
     """Serializer for RideSchedule model."""
     driver_email = serializers.EmailField(source='driver.email', read_only=True)
+    vehicle_asset_id = serializers.UUIDField(write_only=True, required=False, allow_null=True)
     
     class Meta:
         model = RideSchedule
         fields = [
             'id', 'driver', 'driver_email', 'name', 'schedule_type',
+            'vehicle_asset_id',
             'origin', 'destination', 'waypoints',
             'departure_time', 'estimated_duration_minutes',
             'recurrence_days', 'total_seats', 'seat_price', 'currency',
@@ -163,3 +179,13 @@ class RideScheduleSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate(self, attrs):
+        vehicle_asset_id = attrs.pop('vehicle_asset_id', None)
+        if vehicle_asset_id:
+            from kiboss.apps.assets.models import Asset
+            try:
+                attrs['vehicle_asset'] = Asset.objects.get(id=vehicle_asset_id)
+            except Asset.DoesNotExist as exc:
+                raise serializers.ValidationError({'vehicle_asset_id': 'Vehicle asset not found'}) from exc
+        return attrs

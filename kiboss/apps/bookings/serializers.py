@@ -41,6 +41,7 @@ class BookingCreateSerializer(serializers.Serializer):
     end_time = serializers.DateTimeField()
     quantity = serializers.IntegerField(min_value=1, default=1)
     notes = serializers.CharField(max_length=500, required=False, allow_blank=True)
+    renter_notes = serializers.CharField(max_length=500, required=False, allow_blank=True)
     
     def validate(self, data):
         """Validate booking data."""
@@ -53,7 +54,11 @@ class BookingCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 "Cannot book in the past"
             )
-        
+
+        # Backward compatibility for clients still sending renter_notes.
+        if not data.get('notes') and data.get('renter_notes'):
+            data['notes'] = data['renter_notes']
+
         return data
 
 
@@ -66,7 +71,7 @@ class BookingUpdateSerializer(serializers.Serializer):
 class BookingCancelSerializer(serializers.Serializer):
     """Serializer for cancelling bookings."""
     
-    reason = serializers.CharField(max_length=500)
+    reason = serializers.CharField(max_length=500, required=False, allow_blank=True)
     justification = serializers.CharField(max_length=500, required=False, allow_blank=True)
 
 
@@ -74,6 +79,7 @@ class BookingResponseSerializer(serializers.ModelSerializer):
     """Serializer for booking responses."""
     
     asset = AssetSummarySerializer(read_only=True)
+    renter = UserSerializer(read_only=True)
     owner = serializers.SerializerMethodField()
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     duration_hours = serializers.SerializerMethodField()
@@ -84,7 +90,7 @@ class BookingResponseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Booking
         fields = [
-            'id', 'asset', 'owner', 'status', 'status_display',
+            'id', 'asset', 'renter', 'owner', 'status', 'status_display',
             'start_time', 'end_time', 'duration_hours', 'quantity',
             'unit_price', 'subtotal', 'service_fee', 'taxes',
             'total_price', 'currency', 'price_breakdown',

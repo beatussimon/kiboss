@@ -113,18 +113,18 @@ class TestAuthenticationAPI:
 class TestAssetAPI:
     """Tests for Asset CRUD endpoints."""
     
-    def test_list_assets(self, api_client, multiple_assets):
+    def test_list_assets(self, authenticated_client, multiple_assets):
         """Test listing all assets."""
         url = reverse('asset-list')
-        response = api_client.get(url)
+        response = authenticated_client.get(url)
         
         assert response.status_code == status.HTTP_200_OK
         assert len(response.data['results']) >= 3
     
-    def test_retrieve_asset(self, api_client, test_asset):
+    def test_retrieve_asset(self, authenticated_client, test_asset):
         """Test retrieving a single asset."""
         url = reverse('asset-detail', args=[test_asset.id])
-        response = api_client.get(url)
+        response = authenticated_client.get(url)
         
         assert response.status_code == status.HTTP_200_OK
         assert response.data['name'] == test_asset.name
@@ -184,26 +184,26 @@ class TestAssetAPI:
         test_asset.refresh_from_db()
         assert test_asset.is_active is False
     
-    def test_asset_filter_by_type(self, api_client, test_asset):
+    def test_asset_filter_by_type(self, authenticated_client, test_asset):
         """Test filtering assets by type."""
         url = reverse('asset-list')
-        response = api_client.get(url, {'asset_type': 'ROOM'})
+        response = authenticated_client.get(url, {'asset_type': 'ROOM'})
         
         assert response.status_code == status.HTTP_200_OK
         for asset in response.data['results']:
             assert asset['asset_type'] == 'ROOM'
     
-    def test_asset_filter_by_verification(self, api_client, test_asset):
+    def test_asset_filter_by_verification(self, authenticated_client, test_asset):
         """Test filtering assets by verification status."""
         url = reverse('asset-list')
-        response = api_client.get(url, {'verification_status': 'VERIFIED'})
+        response = authenticated_client.get(url, {'verification_status': 'VERIFIED'})
         
         assert response.status_code == status.HTTP_200_OK
     
-    def test_asset_search(self, api_client, test_asset):
+    def test_asset_search(self, authenticated_client, test_asset):
         """Test searching assets."""
         url = reverse('asset-list')
-        response = api_client.get(url, {'search': 'Test'})
+        response = authenticated_client.get(url, {'search': 'Test'})
         
         assert response.status_code == status.HTTP_200_OK
         assert len(response.data['results']) > 0
@@ -311,8 +311,57 @@ class TestBookingAPI:
         
         assert response.status_code == status.HTTP_200_OK
     
-    def test_cannot_retrieve_others_booking(self, authenticated_client, test_booking):
+    def test_cannot_retrieve_others_booking(self, authenticated_client, second_user, db):
         """Test that users cannot retrieve others' bookings."""
+        # Create an asset owned by second_user, not test_user
+        from datetime import timedelta
+        from django.utils import timezone
+        from kiboss.apps.bookings.models import Booking, BookingStatus
+        from kiboss.apps.assets.models import Asset, AssetType, VerificationStatus
+        
+        # Create a new asset owned by second_user
+        test_asset = Asset.objects.create(
+            name='Test Asset for Booking',
+            description='A test asset for booking permissions',
+            asset_type=AssetType.ROOM,
+            owner=second_user,  # Asset is owned by second_user
+            address='123 Permission Street',
+            city='Test City',
+            state='Test State',
+            country='US',
+            postal_code='12345',
+            verification_status=VerificationStatus.VERIFIED,
+            is_active=True,
+            is_listed=True,
+            properties={
+                'bedrooms': 1,
+                'bathrooms': 1
+            }
+        )
+        
+        start_time = timezone.now() + timedelta(days=3)
+        end_time = start_time + timedelta(hours=2)
+        
+        test_booking = Booking.objects.create(
+            renter=second_user,
+            asset=test_asset,  # This asset is owned by second_user
+            status=BookingStatus.PENDING,
+            start_time=start_time,
+            end_time=end_time,
+            quantity=1,
+            unit_price=100.00,
+            subtotal=200.00,
+            service_fee=20.00,
+            taxes=0.00,
+            total_price=220.00,
+            currency='USD',
+            price_breakdown={
+                'base_price': '200.00',
+                'service_fee': '20.00',
+                'taxes': '0.00'
+            }
+        )
+        
         url = reverse('booking-detail', args=[test_booking.id])
         response = authenticated_client.get(url)
         
@@ -347,10 +396,10 @@ class TestBookingAPI:
 class TestAPIEdgeCases:
     """Tests for API edge cases and error handling."""
     
-    def test_invalid_uuid(self, api_client):
+    def test_invalid_uuid(self, authenticated_client):
         """Test handling of invalid UUID."""
         url = '/api/v1/assets/invalid-uuid/'
-        response = api_client.get(url)
+        response = authenticated_client.get(url)
         
         assert response.status_code == status.HTTP_404_NOT_FOUND
     
@@ -381,24 +430,28 @@ class TestAPIEdgeCases:
     
     def test_expired_token(self, api_client, test_user, test_asset):
         """Test that expired tokens are rejected."""
-        # Create an expired token
-        refresh = RefreshToken.for_user(test_user)
-        refresh.set_exp(lifetime=-timedelta(days=1))  # Already expired
+        # Create an expired access token
+        from rest_framework_simplejwt.tokens import AccessToken
+        from datetime import datetime, timedelta
         
-        api_client.credentials(HTTP_AUTHORIZATION=f'Bearer {refresh.access_token}')
+        access_token = AccessToken()
+        access_token['user_id'] = str(test_user.id)
+        access_token['exp'] = datetime.now() - timedelta(days=1)
+        
+        api_client.credentials(HTTP_AUTHORIZATION=f'Bearer {access_token}')
         
         url = reverse('asset-detail', args=[test_asset.id])
         response = api_client.get(url)
         
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
     
-    def test_rate_limiting(self, api_client):
+    def test_rate_limiting(self, authenticated_client):
         """Test that rate limiting is applied."""
         # Make many rapid requests
         url = reverse('asset-list')
         responses = []
         for _ in range(10):
-            response = api_client.get(url)
+            response = authenticated_client.get(url)
             responses.append(response.status_code)
         
         # At least some should be rate limited (429)

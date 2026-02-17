@@ -4,6 +4,7 @@ Views for Assets API - Universal Asset System
 from rest_framework import viewsets, status, filters, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.exceptions import PermissionDenied
 from django.db.models import Avg
 from django.utils import timezone
 from kiboss.apps.assets.models import Asset, AssetPhoto, AssetPricing, AssetAvailability
@@ -35,6 +36,22 @@ class AssetViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         """Set the owner to the current user when creating an asset."""
         serializer.save(owner=self.request.user)
+
+    def perform_update(self, serializer):
+        asset = self.get_object()
+        if asset.owner_id != self.request.user.id and not self.request.user.is_superuser:
+            raise PermissionDenied('Only the asset owner can update this asset')
+        serializer.save()
+
+    def destroy(self, request, *args, **kwargs):
+        """Soft-delete assets so references and history remain intact."""
+        asset = self.get_object()
+        if asset.owner_id != request.user.id and not request.user.is_superuser:
+            raise PermissionDenied('Only the asset owner can delete this asset')
+        asset.is_active = False
+        asset.is_listed = False
+        asset.save(update_fields=['is_active', 'is_listed', 'updated_at'])
+        return Response(status=status.HTTP_204_NO_CONTENT)
     
     def get_queryset(self):
         queryset = Asset.objects.select_related('owner', 'verified_by').prefetch_related(
@@ -69,6 +86,9 @@ class AssetViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(verification_status=verification_status)
         
         # Filter by active/listed
+        if self.action in ['list', 'retrieve']:
+            queryset = queryset.filter(is_active=True)
+
         is_active = self.request.query_params.get('is_active')
         if is_active is not None:
             queryset = queryset.filter(is_active=is_active.lower() == 'true')

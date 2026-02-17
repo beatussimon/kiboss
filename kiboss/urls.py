@@ -15,28 +15,31 @@ from kiboss.apps.core.admin import admin_site
 
 def api_root(request):
     """API root endpoint - returns available resources."""
-    return JsonResponse({
-        'status': 'ok',
-        'name': 'KIBOSS API',
-        'version': 'v1',
-        'documentation': '/api/v1/docs/',
-        'schema': '/api/v1/schema/',
-        'resources': {
-            'auth': '/api/v1/auth/',
-            'users': '/api/v1/users/',
-            'assets': '/api/v1/assets/',
-            'bookings': '/api/v1/bookings/',
-            'contracts': '/api/v1/contracts/',
-            'payments': '/api/v1/payments/',
-            'rides': '/api/v1/rides/',
-            'messages': '/api/v1/messages/',
-            'ratings': '/api/v1/ratings/',
-            'notifications': '/api/v1/notifications/',
-            'social': '/api/v1/social/',
-            'rbac': '/api/v1/rbac/',
-            'audits': '/api/v1/audits/',
-        }
-    })
+    return JsonResponse(
+        {
+            'status': 'ok',
+            'name': 'KIBOSS API',
+            'version': 'v1',
+            'documentation': '/api/v1/docs/',
+            'schema': '/api/v1/schema/',
+            'resources': {
+                'auth': '/api/v1/auth/',
+                'users': '/api/v1/users/',
+                'assets': '/api/v1/assets/',
+                'bookings': '/api/v1/bookings/',
+                'contracts': '/api/v1/contracts/',
+                'payments': '/api/v1/payments/',
+                'rides': '/api/v1/rides/',
+                'messages': '/api/v1/messaging/',
+                'ratings': '/api/v1/ratings/',
+                'notifications': '/api/v1/notifications/',
+                'social': '/api/v1/social/',
+                'rbac': '/api/v1/rbac/',
+                'audits': '/api/v1/audits/',
+            },
+        },
+        json_dumps_params={'separators': (',', ':')},
+    )
 
 
 urlpatterns = [

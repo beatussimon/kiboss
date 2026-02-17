@@ -134,6 +134,11 @@ class Ride(models.Model):
     
     def __str__(self):
         return f"Ride {self.id}: {self.origin} → {self.destination} ({self.departure_time})"
+
+    def save(self, *args, **kwargs):
+        if self.confirmed_seats >= self.total_seats and self.status in [RideStatus.OPEN, RideStatus.SCHEDULED]:
+            self.status = RideStatus.FULL
+        super().save(*args, **kwargs)
     
     def get_available_seats(self):
         """Get number of available seats."""
@@ -333,10 +338,8 @@ class SeatBooking(models.Model):
         """Mark passenger as no-show."""
         self.status = SeatBookingStatus.NO_SHOW
         self.marked_no_show_at = timezone.now()
-        self.save()
-        
-        # Apply penalty if configured
         self.no_show_penalty_applied = True
+        self.save(update_fields=['status', 'marked_no_show_at', 'no_show_penalty_applied', 'updated_at'])
 
 
 class RideSchedule(models.Model):
@@ -356,6 +359,13 @@ class RideSchedule(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='ride_schedules'
+    )
+    vehicle_asset = models.ForeignKey(
+        'assets.Asset',
+        on_delete=models.PROTECT,
+        related_name='ride_schedules',
+        blank=True,
+        null=True
     )
     
     name = models.CharField(max_length=255)
@@ -405,8 +415,16 @@ class RideSchedule(models.Model):
         from datetime import datetime, timedelta
         
         rides_created = []
-        current_date = timezone.now().date()
+        current_date = max(timezone.now().date(), self.valid_from)
         end_date = current_date + timedelta(days=days_ahead)
+        if self.valid_until:
+            end_date = min(end_date, self.valid_until)
+
+        vehicle_asset = self.vehicle_asset
+        if vehicle_asset is None:
+            vehicle_asset = self.driver.assets.filter(is_active=True).first()
+        if vehicle_asset is None:
+            return rides_created
         
         # Iterate through dates
         while current_date <= end_date:
@@ -428,6 +446,7 @@ class RideSchedule(models.Model):
                 ).exists():
                     ride = Ride.objects.create(
                         driver=self.driver,
+                        vehicle_asset=vehicle_asset,
                         route_name=self.name,
                         origin=self.origin,
                         destination=self.destination,

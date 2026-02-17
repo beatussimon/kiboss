@@ -26,6 +26,7 @@ class RedisLockManager:
     """
     
     def __init__(self):
+        self._mock_locks = {}
         try:
             self.client = redis.Redis(
                 host=settings.REDIS_HOST,
@@ -61,8 +62,13 @@ class RedisLockManager:
             Lock token if acquired, None otherwise
         """
         if self.client is None:
-            # No Redis - return a mock token for testing
-            return f"mock_lock_{uuid.uuid4().hex[:8]}"
+            existing = self._mock_locks.get(lock_key)
+            now = time.time()
+            if existing and existing['expires_at'] > now:
+                return None
+            token = f"mock_lock_{uuid.uuid4().hex[:8]}"
+            self._mock_locks[lock_key] = {'token': token, 'expires_at': now + ttl}
+            return token
         
         lock_token = str(uuid.uuid4())
         retry_count = 0
@@ -104,6 +110,10 @@ class RedisLockManager:
             True if released, False otherwise
         """
         if self.client is None:
+            lock = self._mock_locks.get(lock_key)
+            if not lock or lock['token'] != lock_token:
+                return False
+            del self._mock_locks[lock_key]
             return True
         
         # Lua script for atomic release
@@ -134,6 +144,10 @@ class RedisLockManager:
             True if extended, False otherwise
         """
         if self.client is None:
+            lock = self._mock_locks.get(lock_key)
+            if not lock or lock['token'] != lock_token:
+                return False
+            lock['expires_at'] = time.time() + ttl
             return True
         
         extend_script = """
@@ -153,7 +167,13 @@ class RedisLockManager:
     def is_locked(self, lock_key: str) -> bool:
         """Check if a lock exists."""
         if self.client is None:
-            return False
+            lock = self._mock_locks.get(lock_key)
+            if not lock:
+                return False
+            if lock['expires_at'] <= time.time():
+                del self._mock_locks[lock_key]
+                return False
+            return True
         
         try:
             return self.client.exists(lock_key) > 0
@@ -163,7 +183,10 @@ class RedisLockManager:
     def get_lock_owner(self, lock_key: str) -> Optional[str]:
         """Get the owner token of a lock."""
         if self.client is None:
-            return None
+            lock = self._mock_locks.get(lock_key)
+            if not lock or lock['expires_at'] <= time.time():
+                return None
+            return lock['token']
         
         try:
             return self.client.get(lock_key)
@@ -339,3 +362,8 @@ def get_rate_limiter():
     if _rate_limiter is None:
         _rate_limiter = RedisRateLimiter()
     return _rate_limiter
+
+
+# Backward-compatible aliases used by legacy code/tests.
+lock_manager = get_lock_manager()
+rate_limiter = get_rate_limiter()

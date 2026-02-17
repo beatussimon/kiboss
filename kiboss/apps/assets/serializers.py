@@ -3,7 +3,7 @@ Serializers for KIBOSS Asset API
 """
 
 from rest_framework import serializers
-from kiboss.apps.assets.models import Asset, AssetPhoto, AssetPricing, AssetAvailability, AssetCapacity, AssetTimeGranularity
+from kiboss.apps.assets.models import Asset, AssetType, AssetPhoto, AssetPricing, AssetAvailability, AssetCapacity, AssetTimeGranularity
 
 
 class AssetPhotoSerializer(serializers.ModelSerializer):
@@ -47,7 +47,7 @@ class AssetPricingSerializer(serializers.ModelSerializer):
             'min_quantity', 'max_quantity',
             'min_duration_minutes', 'max_duration_minutes',
             'available_from', 'available_to', 'days_of_week',
-            'valid_from', 'valid_until', 'rules',
+            'valid_from', 'valid_until', 'quantity_discounts', 'rules',
             'priority', 'is_active', 'created_at'
         ]
         read_only_fields = ['id', 'created_at']
@@ -212,6 +212,7 @@ class AssetUpdateSerializer(serializers.ModelSerializer):
 class AssetSerializer(serializers.ModelSerializer):
     """Full serializer for assets (for create/update)."""
     
+    asset_type = serializers.ChoiceField(choices=AssetType.choices, required=True)
     owner_email = serializers.EmailField(source='owner.email', read_only=True)
     is_verified = serializers.SerializerMethodField()
     

@@ -21,7 +21,7 @@ class RideViewSet(viewsets.ModelViewSet):
     Provides CRUD operations and custom actions for ride-sharing.
     """
     queryset = Ride.objects.select_related('driver', 'vehicle_asset').order_by('-departure_time')
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     
     def get_serializer_class(self):
         if self.action == 'list':

@@ -90,3 +90,44 @@ class PublicUserView(APIView):
         
         serializer = PublicUserSerializer(user)
         return Response(serializer.data)
+
+
+class RegisterView(APIView):
+    """
+    API endpoint for registering users.
+
+    POST /api/v1/users/register/
+    """
+    permission_classes = []
+
+    def post(self, request):
+        email = request.data.get('email')
+        password = request.data.get('password')
+        password_confirm = request.data.get('password_confirm')
+        first_name = request.data.get('first_name', '')
+        last_name = request.data.get('last_name', '')
+
+        if not email or not password:
+            return Response(
+                {'error': 'email and password are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if password_confirm is not None and password != password_confirm:
+            return Response(
+                {'error': 'Passwords do not match'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if User.objects.filter(email=email).exists():
+            return Response(
+                {'error': 'A user with this email already exists'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user = User.objects.create_user(
+            email=email,
+            password=password,
+            first_name=first_name,
+            last_name=last_name,
+        )
+        serializer = UserWithProfileSerializer(user)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)

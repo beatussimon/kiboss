@@ -255,6 +255,18 @@ class Booking(models.Model):
     
     def __str__(self):
         return f"Booking {self.id} - {self.renter.email} / {self.asset.name} ({self.status})"
+
+    def save(self, *args, **kwargs):
+        is_create = self._state.adding
+        super().save(*args, **kwargs)
+        if is_create and not self.price_breakdown:
+            BookingTimeline.log_event(
+                booking=self,
+                event_type='CREATED',
+                description='Booking created',
+                actor_type='USER',
+                actor_id=self.renter_id,
+            )
     
     # State Machine Methods
     
@@ -272,7 +284,11 @@ class Booking(models.Model):
         Returns:
             bool: Whether transition was successful
         """
-        # Validate state transition
+        # Admin justification required for overrides
+        if actor_type == 'ADMIN' and not justification:
+            raise ValueError("Admin override requires justification")
+
+        # Validate state transition for non-admin actors
         if self.status == BookingStatus.PENDING:
             current_transitions = [BookingStatus.CONFIRMED, BookingStatus.EXPIRED]
         elif self.status == BookingStatus.CONFIRMED:
@@ -286,15 +302,11 @@ class Booking(models.Model):
         else:
             current_transitions = []
         
-        if new_status not in current_transitions:
+        if actor_type != 'ADMIN' and new_status not in current_transitions:
             raise ValueError(
                 f"Invalid transition: {self.status} → {new_status}. "
                 f"Valid transitions from {self.status}: {current_transitions}"
             )
-        
-        # Admin justification required for certain overrides
-        if actor_type == 'ADMIN' and not justification:
-            raise ValueError("Admin override requires justification")
         
         old_status = self.status
         
@@ -324,6 +336,30 @@ class Booking(models.Model):
                 self.completed_at = timezone.now()
             
             self.save()
+
+            # Log timeline for transition.
+            BookingTimeline.log_event(
+                booking=self,
+                event_type=str(new_status),
+                description=f'Booking transitioned to {new_status}',
+                actor_type=actor_type,
+                actor_id=actor_id,
+                data={'from_status': str(old_status), 'to_status': str(new_status)},
+            )
+
+            # Keep trust score counters aligned with lifecycle.
+            if new_status in [BookingStatus.CANCELLED, BookingStatus.COMPLETED]:
+                from kiboss.apps.users.models import TrustScore
+                trust, _ = TrustScore.objects.get_or_create(user=self.renter)
+                updated_fields = []
+                if new_status == BookingStatus.CANCELLED:
+                    trust.cancelled_bookings += 1
+                    updated_fields.append('cancelled_bookings')
+                if new_status == BookingStatus.COMPLETED:
+                    trust.completed_bookings += 1
+                    updated_fields.append('completed_bookings')
+                if updated_fields:
+                    trust.save(update_fields=updated_fields + ['last_calculated'])
         
         return True
     
@@ -347,13 +383,17 @@ class Booking(models.Model):
     
     def calculate_late_fee(self, return_time):
         """Calculate late fee based on return time."""
-        if not self.is_late:
-            return Decimal('0.00')
-        
         late_duration = return_time - self.end_time
-        late_hours = late_duration.total_seconds() / 3600
-        late_fee = late_hours * self.late_fee_per_unit * self.quantity
-        
+        late_seconds = max(late_duration.total_seconds(), 0)
+        if late_seconds <= 0:
+            return Decimal('0.00')
+        late_hours = Decimal(str(late_seconds / 3600))
+        late_fee = late_hours * self.late_fee_per_unit * Decimal(str(self.quantity))
+
+        # Escalate to max fee for significant lateness.
+        if self.late_fee_max > Decimal('0.00') and late_hours >= Decimal('3'):
+            return self.late_fee_max
+
         return min(late_fee, self.late_fee_max)
     
     def get_duration_hours(self):

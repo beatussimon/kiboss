@@ -11,6 +11,7 @@ Implements the booking engine with:
 import logging
 from decimal import Decimal
 from django.db import transaction
+from django.db.models import Sum
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 from kiboss.apps.common.locking import get_lock_manager, LockAcquisitionError
@@ -37,6 +38,17 @@ class BookingService:
     
     PAYMENT_TIMEOUT_MINUTES = 15
     DEFAULT_GRACE_PERIOD_MINUTES = 15
+
+    @staticmethod
+    def _json_safe(value):
+        """Convert Decimal-rich structures to JSON-safe primitives."""
+        if isinstance(value, Decimal):
+            return str(value)
+        if isinstance(value, dict):
+            return {k: BookingService._json_safe(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [BookingService._json_safe(v) for v in value]
+        return value
     
     @classmethod
     def check_availability(cls, asset_id, start_time, end_time, quantity=1):
@@ -75,9 +87,7 @@ class BookingService:
         )
         
         # Calculate total booked quantity
-        total_booked = overlapping.aggregate(
-            total=models.Sum('quantity')
-        )['total'] or 0
+        total_booked = overlapping.aggregate(total=Sum('quantity'))['total'] or 0
         
         # Get asset capacity
         capacity = asset.get_property('capacity', 1)
@@ -128,7 +138,24 @@ class BookingService:
         ).order_by('-priority').first()
         
         if not pricing_rule:
-            raise BookingError("No pricing rule configured for this asset")
+            default_unit_price = Decimal(str(asset.get_property('default_price', '100.00')))
+            base_price = default_unit_price * Decimal(str(quantity)) * Decimal(str(duration_hours))
+            service_fee = base_price * Decimal('0.10')
+            tax_rate = Decimal(str(asset.get_property('tax_rate', '0.00')))
+            taxes = (base_price + service_fee) * tax_rate
+            total = base_price + service_fee + taxes
+            return {
+                "unit_price": default_unit_price,
+                "quantity": quantity,
+                "duration_hours": duration_hours,
+                "base_price": base_price,
+                "subtotal": base_price,
+                "service_fee": service_fee,
+                "tax_rate": float(tax_rate),
+                "taxes": taxes,
+                "total": total,
+                "currency": "USD"
+            }
         
         # Calculate base price
         base_price = pricing_rule.calculate_price(
@@ -186,7 +213,8 @@ class BookingService:
             LockAcquisitionError: If cannot acquire lock
         """
         # Check rate limit
-        from kiboss.apps.common.locking import rate_limiter
+        from kiboss.apps.common.locking import get_rate_limiter
+        rate_limiter = get_rate_limiter()
         is_allowed, remaining, _ = rate_limiter.check_booking_rate_limit(str(renter.id))
         if not is_allowed:
             raise BookingError("Rate limit exceeded for booking creation")
@@ -213,6 +241,7 @@ class BookingService:
         
         # Acquire Redis lock for availability check
         lock_key = f"lock:asset:{asset_id}"
+        lock_manager = get_lock_manager()
         
         def _do_booking():
             # Check availability with lock held
@@ -242,7 +271,7 @@ class BookingService:
                     service_fee=price_breakdown["service_fee"],
                     taxes=price_breakdown["taxes"],
                     total_price=price_breakdown["total"],
-                    price_breakdown=price_breakdown,
+                    price_breakdown=cls._json_safe(price_breakdown),
                     renter_notes=notes,
                     grace_period_minutes=cls.DEFAULT_GRACE_PERIOD_MINUTES
                 )

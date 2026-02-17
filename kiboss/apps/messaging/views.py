@@ -7,7 +7,10 @@ from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from kiboss.apps.messaging.models import Thread, Message, MessageAttachment
+from django.db import transaction
+from kiboss.apps.messaging.models import (
+    Thread, Message, MessageAttachment, ContextType, ThreadType
+)
 from kiboss.apps.messaging.serializers import (
     ThreadSerializer, ThreadDetailSerializer, MessageSerializer,
     CreateThreadSerializer, CreateMessageSerializer, MessageAttachmentSerializer,
@@ -74,6 +77,16 @@ class ThreadViewSet(viewsets.ModelViewSet):
         """Create thread and add participant."""
         thread = serializer.save()
         thread.participants.add(self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        """Disallow non-contextual thread creation."""
+        return Response(
+            {
+                'error': 'Free-form messaging is not allowed. Use create_contextual with valid context.',
+                'code': 'CONTEXT_REQUIRED',
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
     
     @action(detail=True, methods=['post'])
     def messages(self, request, pk=None):
@@ -195,7 +208,7 @@ class ThreadViewSet(viewsets.ModelViewSet):
         - Sender must have permission to contact recipient (owner/driver)
         """
         target_user_id = request.data.get('target_user_id')
-        thread_type = request.data.get('thread_type', 'INQUIRY')
+        thread_type = request.data.get('thread_type', ThreadType.INQUIRY)
         subject = request.data.get('subject', '')
         listing_id = request.data.get('listing_id')
         booking_id = request.data.get('booking_id')
@@ -208,10 +221,13 @@ class ThreadViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Validate that context is provided
-        if not (listing_id or booking_id or ride_id):
+        provided_context_ids = [ctx for ctx in [listing_id, booking_id, ride_id] if ctx]
+        if len(provided_context_ids) != 1:
             return Response(
-                {'error': 'At least one context (listing_id, booking_id, or ride_id) is required', 'code': 'MISSING_CONTEXT'},
+                {
+                    'error': 'Exactly one context is required (listing_id, booking_id, or ride_id)',
+                    'code': 'INVALID_CONTEXT'
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -222,6 +238,18 @@ class ThreadViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        if thread_type not in [choice[0] for choice in ThreadType.choices]:
+            return Response(
+                {'error': 'Invalid thread_type', 'code': 'INVALID_THREAD_TYPE'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if thread_type in [ThreadType.DIRECT, ThreadType.SUPPORT]:
+            return Response(
+                {'error': 'Free-form messaging is not allowed', 'code': 'THREAD_TYPE_NOT_ALLOWED'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         try:
             target_user = User.objects.get(id=target_user_id)
         except User.DoesNotExist:
@@ -229,7 +257,13 @@ class ThreadViewSet(viewsets.ModelViewSet):
                 {'error': 'Recipient user not found', 'code': 'USER_NOT_FOUND'},
                 status=status.HTTP_404_NOT_FOUND
             )
-        
+
+        context_type = None
+        context_id = None
+        booking = None
+        ride = None
+        asset = None
+
         # Validate listing exists if provided
         if listing_id:
             from kiboss.apps.assets.models import Asset
@@ -252,6 +286,8 @@ class ThreadViewSet(viewsets.ModelViewSet):
                     {'error': 'Listing not found', 'code': 'LISTING_NOT_FOUND'},
                     status=status.HTTP_404_NOT_FOUND
                 )
+            context_type = ContextType.ASSET
+            context_id = asset.id
         
         # Validate booking exists if provided
         if booking_id:
@@ -260,7 +296,7 @@ class ThreadViewSet(viewsets.ModelViewSet):
                 booking = Booking.objects.get(id=booking_id)
                 # Check if user is related to this booking (either renter or owner)
                 is_renter = str(booking.renter.id) == str(request.user.id)
-                is_owner = str(booking.owner.id) == str(request.user.id)
+                is_owner = str(booking.asset.owner.id) == str(request.user.id)
                 
                 # Check if target user is the other party in the booking
                 if str(booking.renter.id) == str(target_user_id):
@@ -270,7 +306,7 @@ class ThreadViewSet(viewsets.ModelViewSet):
                             {'error': 'You can only contact the renter if you are the booking owner', 'code': 'PERMISSION_DENIED'},
                             status=status.HTTP_403_FORBIDDEN
                         )
-                elif str(booking.owner.id) == str(target_user_id):
+                elif str(booking.asset.owner.id) == str(target_user_id):
                     # Contacting owner - only renter can do this
                     if not is_renter:
                         return Response(
@@ -287,6 +323,8 @@ class ThreadViewSet(viewsets.ModelViewSet):
                     {'error': 'Booking not found', 'code': 'BOOKING_NOT_FOUND'},
                     status=status.HTTP_404_NOT_FOUND
                 )
+            context_type = ContextType.BOOKING
+            context_id = booking.id
         
         # Validate ride exists if provided
         if ride_id:
@@ -311,72 +349,71 @@ class ThreadViewSet(viewsets.ModelViewSet):
                     {'error': 'Ride not found', 'code': 'RIDE_NOT_FOUND'},
                     status=status.HTTP_404_NOT_FOUND
                 )
+            context_type = ContextType.RIDE
+            context_id = ride.id
         
-        # Build filter for existing thread
-        filter_kwargs = {
-            'thread_type': thread_type,
-            'participants': request.user,
-        }
-        
-        # Add context to filter if provided
-        if booking_id:
-            filter_kwargs['booking_id'] = booking_id
-        if ride_id:
-            filter_kwargs['ride_id'] = ride_id
-        
-        # Check if thread already exists
-        existing_threads = Thread.objects.filter(**filter_kwargs)
-        
-        if booking_id or ride_id:
-            # For booking/ride threads, also check for target user
-            existing_threads = existing_threads.filter(participants=target_user)
-        
-        if existing_threads.exists():
-            thread = existing_threads.first()
-            return Response(ThreadSerializer(thread).data)
-        
-        # Create new contextual thread
-        thread = Thread.objects.create(
-            thread_type=thread_type,
-            subject=subject or f'Conversation about {thread_type.lower()}'
-        )
-        thread.participants.add(request.user, target_user)
-        
-        # Link to context if provided
-        if booking_id:
-            from kiboss.apps.bookings.models import Booking
-            try:
-                booking = Booking.objects.get(id=booking_id)
-                thread.booking = booking
-                if not subject:
-                    thread.subject = f'Inquiry about booking #{booking.id}'
-            except Booking.DoesNotExist:
-                pass
-        
-        if ride_id:
-            from kiboss.apps.rides.models import Ride
-            try:
-                ride = Ride.objects.get(id=ride_id)
-                thread.ride = ride
-                if not subject:
-                    thread.subject = f'Inquiry about ride to {ride.destination}'
-            except Ride.DoesNotExist:
-                pass
-        
-        # Also link listing if provided (for INQUIRY type threads)
-        if listing_id and thread_type == 'INQUIRY':
-            from kiboss.apps.assets.models import Asset
-            try:
-                asset = Asset.objects.get(id=listing_id)
-                if not subject:
-                    thread.subject = f'Inquiry about {asset.name}'
-            except Asset.DoesNotExist:
-                pass
-        
-        thread.save()
-        
+        if not context_type or not context_id:
+            return Response(
+                {'error': 'Context is required', 'code': 'MISSING_CONTEXT'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Enforce context/thread type consistency.
+        expected_thread_type = {
+            ContextType.ASSET: ThreadType.INQUIRY,
+            ContextType.BOOKING: ThreadType.BOOKING,
+            ContextType.RIDE: ThreadType.RIDE,
+        }[context_type]
+        if thread_type != expected_thread_type and thread_type != ThreadType.DISPUTE:
+            return Response(
+                {'error': f'{context_type} context requires thread type {expected_thread_type}', 'code': 'THREAD_CONTEXT_MISMATCH'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        with transaction.atomic():
+            existing_threads = (
+                Thread.objects.filter(
+                    thread_type=thread_type,
+                    context_type=context_type,
+                    context_id=context_id,
+                    participants=request.user,
+                )
+                .filter(participants=target_user)
+                .prefetch_related('participants')
+                .order_by('-updated_at')
+            )
+            if existing_threads.exists():
+                thread = existing_threads.first()
+                if thread.booking_id != getattr(booking, 'id', None):
+                    thread.booking = booking
+                if thread.ride_id != getattr(ride, 'id', None):
+                    thread.ride = ride
+                thread.save(update_fields=['booking', 'ride', 'updated_at'])
+                return Response(ThreadSerializer(thread, context={'request': request}).data)
+
+            # Create new contextual thread
+            if not subject:
+                if context_type == ContextType.ASSET and asset is not None:
+                    subject = f'Inquiry about {asset.name}'
+                elif context_type == ContextType.BOOKING and booking is not None:
+                    subject = f'Inquiry about booking #{booking.id}'
+                elif context_type == ContextType.RIDE and ride is not None:
+                    subject = f'Inquiry about ride to {ride.destination}'
+                else:
+                    subject = f'Conversation about {thread_type.lower()}'
+
+            thread = Thread.objects.create(
+                thread_type=thread_type,
+                subject=subject,
+                context_type=context_type,
+                context_id=context_id,
+                booking=booking,
+                ride=ride,
+            )
+            thread.participants.add(request.user, target_user)
+
         return Response(
-            ThreadSerializer(thread).data,
+            ThreadSerializer(thread, context={'request': request}).data,
             status=status.HTTP_201_CREATED
         )
     
@@ -400,6 +437,26 @@ class ThreadViewSet(viewsets.ModelViewSet):
         thread = self.get_object()
         thread.unlock(request.user)
         return Response(ThreadSerializer(thread).data)
+
+    @action(detail=True, methods=['post'])
+    def read(self, request, pk=None):
+        """Mark all unread messages in a thread as read for the current user."""
+        thread = self.get_object()
+        if request.user not in thread.participants.all():
+            return Response(
+                {'error': 'You are not a participant of this thread'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        unread = thread.messages.exclude(sender=request.user).exclude(read_receipts__user=request.user)
+        for message in unread:
+            message.read_receipts.get_or_create(user=request.user)
+            if message.status != 'READ':
+                message.status = 'READ'
+                message.read_at = timezone.now()
+                message.save(update_fields=['status', 'read_at', 'updated_at'])
+
+        return Response({'status': 'ok'})
 
 
 class MessageViewSet(viewsets.ModelViewSet):

@@ -55,7 +55,9 @@ class Payment(models.Model):
     booking = models.OneToOneField(
         'bookings.Booking',
         on_delete=models.PROTECT,
-        related_name='payment_info'
+        related_name='payment_info',
+        blank=True,
+        null=True
     )
     
     # Payment details
@@ -121,6 +123,13 @@ class Payment(models.Model):
     
     def __str__(self):
         return f"Payment {self.id} - {self.amount} {self.currency} ({self.status})"
+
+    def save(self, *args, **kwargs):
+        if self.booking_id:
+            from kiboss.apps.bookings.models import Booking
+            if not Booking.objects.filter(id=self.booking_id).exists():
+                self.booking_id = None
+        super().save(*args, **kwargs)
     
     # Zenopay Simulation Methods
     
@@ -170,8 +179,8 @@ class Payment(models.Model):
         
         self.escrow_amount -= amount_to_release
         self.metadata['release_details'] = {
-            'released_amount': amount_to_release,
-            'fees_deducted': fees,
+            'released_amount': str(amount_to_release),
+            'fees_deducted': str(fees),
             'released_at': str(timezone.now()),
             'zenopay_release_id': f"ZEN_RELEASE_{uuid.uuid4().hex[:16]}"
         }
@@ -200,7 +209,7 @@ class Payment(models.Model):
             self.status = PaymentStatus.PARTIAL_REFUND
         
         self.metadata['refund_details'] = {
-            'amount': amount,
+            'amount': str(amount),
             'reason': reason,
             'zenopay_refund_id': f"ZEN_REFUND_{uuid.uuid4().hex[:16]}"
         }
@@ -226,7 +235,7 @@ class Payment(models.Model):
             self.metadata['penalty_deducted_from'] = 'card'
         
         self.metadata['penalty_details'] = {
-            'amount': amount,
+            'amount': str(amount),
             'reason': reason,
             'zenopay_penalty_id': f"ZEN_PENALTY_{uuid.uuid4().hex[:16]}"
         }

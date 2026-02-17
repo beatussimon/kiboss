@@ -96,7 +96,7 @@ def admin_user(db):
 
 
 @pytest.fixture
-def api_client():
+def api_client(db):
     """Create a basic API client."""
     return APIClient()
 
@@ -291,7 +291,7 @@ def open_ride(db, test_user, test_asset_vehicle):
 @pytest.fixture
 def test_booking(db, second_user, test_asset):
     """Create a test booking."""
-    start_time = timezone.now() + timedelta(days=1)
+    start_time = timezone.now() + timedelta(days=3)
     end_time = start_time + timedelta(hours=2)
     
     booking = Booking.objects.create(
@@ -319,9 +319,21 @@ def test_booking(db, second_user, test_asset):
 @pytest.fixture
 def confirmed_booking(db, test_booking):
     """Create a confirmed booking."""
-    test_booking.status = BookingStatus.CONFIRMED
-    test_booking.save()
-    return test_booking
+    return Booking.objects.create(
+        renter=test_booking.renter,
+        asset=test_booking.asset,
+        status=BookingStatus.CONFIRMED,
+        start_time=test_booking.start_time,
+        end_time=test_booking.end_time,
+        quantity=test_booking.quantity,
+        unit_price=test_booking.unit_price,
+        subtotal=test_booking.subtotal,
+        service_fee=test_booking.service_fee,
+        taxes=test_booking.taxes,
+        total_price=test_booking.total_price,
+        currency=test_booking.currency,
+        price_breakdown=test_booking.price_breakdown,
+    )
 
 
 # ============ Messaging Fixtures ============

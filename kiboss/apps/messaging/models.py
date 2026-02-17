@@ -16,6 +16,7 @@ Features:
 import uuid
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 
 
 class ThreadType(models.TextChoices):
@@ -26,6 +27,13 @@ class ThreadType(models.TextChoices):
     DISPUTE = 'DISPUTE', 'Dispute Resolution'
     DIRECT = 'DIRECT', 'Direct Message'
     SUPPORT = 'SUPPORT', 'Support'
+
+
+class ContextType(models.TextChoices):
+    """Allowed contextual anchors for a thread."""
+    ASSET = 'ASSET', 'Asset'
+    BOOKING = 'BOOKING', 'Booking'
+    RIDE = 'RIDE', 'Ride'
 
 
 class ThreadStatus(models.TextChoices):
@@ -63,6 +71,14 @@ class Thread(models.Model):
     )
     
     # Context (optional foreign key depending on type)
+    context_type = models.CharField(
+        max_length=20,
+        choices=ContextType.choices,
+        blank=True,
+        null=True
+    )
+    context_id = models.UUIDField(blank=True, null=True)
+
     booking = models.ForeignKey(
         'bookings.Booking',
         on_delete=models.CASCADE,
@@ -124,6 +140,7 @@ class Thread(models.Model):
         indexes = [
             models.Index(fields=['thread_type']),
             models.Index(fields=['status']),
+            models.Index(fields=['context_type', 'context_id']),
         ]
     
     def __str__(self):

@@ -3,6 +3,7 @@ Custom serializers for Users app
 """
 
 from rest_framework import serializers
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -82,32 +83,22 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         password = attrs.get('password')
         
         if not email or not password:
-            raise serializers.ValidationError({
-                'non_field_errors': ['Must include "email" and "password".']
-            })
+            raise AuthenticationFailed('Must include "email" and "password".')
         
         # Authenticate using email
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
-            raise serializers.ValidationError({
-                'non_field_errors': ['No active account found with the given credentials']
-            })
-        
+            raise AuthenticationFailed('No active account found with the given credentials')
+
         if not user.check_password(password):
-            raise serializers.ValidationError({
-                'non_field_errors': ['No active account found with the given credentials']
-            })
-        
+            raise AuthenticationFailed('No active account found with the given credentials')
+
         if not user.is_active:
-            raise serializers.ValidationError({
-                'non_field_errors': ['User account is disabled']
-            })
-        
+            raise AuthenticationFailed('User account is disabled')
+
         if user.is_blocked:
-            raise serializers.ValidationError({
-                'non_field_errors': ['User account has been blocked']
-            })
+            raise AuthenticationFailed('User account has been blocked')
         
         # Generate tokens
         refresh = RefreshToken.for_user(user)

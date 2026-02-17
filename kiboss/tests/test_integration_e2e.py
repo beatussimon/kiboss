@@ -133,10 +133,23 @@ class IntegrationTestCase(TestCase):
         """Set up each test."""
         self.client = Client()
     
+    def get_jwt_token(self, email, password):
+        """Get JWT access token for authentication."""
+        response = self.client.post('/api/v1/auth/token/', {
+            'email': email,
+            'password': password
+        })
+        
+        self.assertEqual(response.status_code, 200)
+        return response.json()['access']
+    
     def test_assets_api_returns_correct_data(self):
         """Test that Assets API returns the test data."""
-        # Get assets list
-        response = self.client.get('/api/v1/assets/')
+        # Authenticate as owner using JWT token
+        token = self.get_jwt_token('owner_integration@test.com', 'testpass123')
+        
+        # Get assets list with JWT token
+        response = self.client.get('/api/v1/assets/', HTTP_AUTHORIZATION=f'Bearer {token}')
         self.assertEqual(response.status_code, 200)
         
         data = response.json()
@@ -181,7 +194,10 @@ class IntegrationTestCase(TestCase):
     
     def test_asset_list_api_count(self):
         """Test that API returns correct count of assets."""
-        response = self.client.get('/api/v1/assets/')
+        # Authenticate as owner using JWT token
+        token = self.get_jwt_token('owner_integration@test.com', 'testpass123')
+        
+        response = self.client.get('/api/v1/assets/', HTTP_AUTHORIZATION=f'Bearer {token}')
         data = response.json()
         
         # Should include our test assets

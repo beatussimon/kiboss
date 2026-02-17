@@ -220,6 +220,11 @@ class AssetPricing(models.Model):
     valid_until = models.DateField(blank=True, null=True)
     
     # Pricing rules (JSON)
+    quantity_discounts = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Legacy quantity discount rules"
+    )
     rules = models.JSONField(
         default=dict,
         blank=True,
@@ -240,7 +245,7 @@ class AssetPricing(models.Model):
         ordering = ['-priority']
     
     def __str__(self):
-        return f"{self.asset.name} - {self.name} ({self.price}/{self.get_unit_type_display()})"
+        return f"{self.asset.name} - {self.name} ({self.price}/{self.unit_type.lower()})"
     
     def calculate_price(self, quantity, duration_minutes=0, start_time=None, end_time=None):
         """
@@ -258,11 +263,13 @@ class AssetPricing(models.Model):
         base_price = self.price
         
         # Apply quantity discount if available
-        if 'quantity_discounts' in self.rules:
-            for discount in self.rules['quantity_discounts']:
-                if quantity >= discount.get('min_quantity', 0):
-                    base_price *= Decimal(str(discount.get('multiplier', 1.0)))
-        
+        discounts = self.quantity_discounts or self.rules.get('quantity_discounts', [])
+        selected_multiplier = Decimal('1.0')
+        for discount in discounts:
+            if quantity >= discount.get('min_quantity', 0):
+                selected_multiplier = Decimal(str(discount.get('multiplier', 1.0)))
+        base_price *= selected_multiplier
+
         return base_price * quantity
 
 
