@@ -141,6 +141,46 @@ class AssetViewSet(viewsets.ModelViewSet):
         serializer = AssetPhotoSerializer(photos, many=True)
         return Response(serializer.data)
     
+    @action(detail=True, methods=['post'])
+    def upload_photos(self, request, pk=None):
+        """Upload photos for an asset."""
+        asset = self.get_object()
+        
+        # Check if user is the owner
+        if asset.owner_id != request.user.id and not request.user.is_superuser:
+            raise PermissionDenied('Only the asset owner can upload photos')
+        
+        # Get uploaded files
+        files = request.FILES.getlist('images')
+        if not files:
+            # Try single file upload
+            single_file = request.FILES.get('image')
+            if single_file:
+                files = [single_file]
+            else:
+                return Response(
+                    {'error': 'No images provided'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Check if is_primary is specified
+        is_primary = request.data.get('is_primary', 'false').lower() == 'true'
+        
+        created_photos = []
+        current_order = asset.photos.count()
+        
+        for i, file in enumerate(files[:10]):  # Max 10 images per upload
+            photo = AssetPhoto.objects.create(
+                asset=asset,
+                image=file,
+                order=current_order + i,
+                is_primary=(is_primary and i == 0) or (current_order == 0 and i == 0)
+            )
+            created_photos.append(photo)
+        
+        serializer = AssetPhotoSerializer(created_photos, many=True)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    
     @action(detail=True, methods=['get'])
     def pricing(self, request, pk=None):
         """Get all pricing rules for an asset."""

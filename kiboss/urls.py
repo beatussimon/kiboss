@@ -72,4 +72,5 @@ urlpatterns = [
     path('api/v1/social/', include('kiboss.apps.social.urls')),
     path('api/v1/rbac/', include('kiboss.apps.rbac.urls')),
     path('api/v1/audits/', include('kiboss.apps.audits.urls')),
+    path('api/v1/common/', include('kiboss.apps.common.urls')),
 ]

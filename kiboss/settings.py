@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     
     # KIBOSS apps
     'kiboss.apps.core',
+    'kiboss.apps.common',
     'kiboss.apps.users',
     'kiboss.apps.assets',
     'kiboss.apps.bookings',

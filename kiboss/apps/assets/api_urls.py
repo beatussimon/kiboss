@@ -10,7 +10,8 @@ from kiboss.apps.assets.views import (
 urlpatterns = [
     path('', AssetViewSet.as_view({'get': 'list', 'post': 'create'}), name='asset-list'),
     path('<str:pk>/', AssetViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='asset-detail'),
-    path('<str:pk>/photos/', AssetViewSet.as_view({'get': 'photos'}), name='asset-photos'),
+    path('<str:pk>/photos/', AssetViewSet.as_view({'get': 'photos', 'post': 'upload_photos'}), name='asset-photos'),
+    path('<str:pk>/images/', AssetViewSet.as_view({'get': 'photos', 'post': 'upload_photos'}), name='asset-images'),
     path('<str:pk>/pricing/', AssetViewSet.as_view({'get': 'pricing'}), name='asset-pricing'),
     path('<str:pk>/availability/', AssetViewSet.as_view({'get': 'availability'}), name='asset-availability'),
     path('<str:pk>/verify/', AssetViewSet.as_view({'post': 'verify'}), name='asset-verify'),

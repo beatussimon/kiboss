@@ -2,6 +2,7 @@
 Serializers for Rides API
 """
 from rest_framework import serializers
+from django.db import transaction
 from django.utils import timezone
 from kiboss.apps.rides.models import Ride, RideStop, SeatBooking, RideSchedule
 from kiboss.apps.users.serializers import UserSerializer
@@ -100,14 +101,29 @@ class SeatBookingCreateSerializer(serializers.Serializer):
         return data
 
 
+class RideStopCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating RideStop with ride data."""
+    latitude = serializers.DecimalField(max_digits=10, decimal_places=7, required=False, default=0)
+    longitude = serializers.DecimalField(max_digits=10, decimal_places=7, required=False, default=0)
+    
+    class Meta:
+        model = RideStop
+        fields = [
+            'stop_type', 'name', 'address',
+            'latitude', 'longitude', 'estimated_arrival',
+            'departure_time', 'stop_order', 'notes'
+        ]
+
+
 class RideSerializer(serializers.ModelSerializer):
     """Serializer for Ride model."""
     driver = UserSerializer(read_only=True)
     driver_email = serializers.EmailField(source='driver.email', read_only=True)
     vehicle_asset = AssetSerializer(read_only=True)
-    vehicle_asset_id = serializers.UUIDField(write_only=True, required=False)
+    vehicle_asset_id = serializers.UUIDField(write_only=True, required=False, allow_null=True)
     available_seats = serializers.SerializerMethodField()
     stops = RideStopSerializer(many=True, read_only=True)
+    stops_data = RideStopCreateSerializer(many=True, write_only=True, required=False)
     
     class Meta:
         model = Ride
@@ -121,7 +137,7 @@ class RideSerializer(serializers.ModelSerializer):
             'reserved_seats', 'confirmed_seats', 'available_seats',
             'vehicle_description', 'vehicle_color', 'vehicle_license_plate',
             'driver_notes', 'cancellation_cutoff_minutes',
-            'no_show_cutoff_minutes', 'stops',
+            'no_show_cutoff_minutes', 'stops', 'stops_data',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
@@ -137,9 +153,21 @@ class RideSerializer(serializers.ModelSerializer):
                 attrs['vehicle_asset'] = Asset.objects.get(id=vehicle_asset_id)
             except Asset.DoesNotExist as exc:
                 raise serializers.ValidationError({'vehicle_asset_id': 'Vehicle asset not found'}) from exc
-        if self.instance is None and 'vehicle_asset' not in attrs:
-            raise serializers.ValidationError({'vehicle_asset_id': 'vehicle_asset_id is required'})
+        # vehicle_asset is now optional - drivers can specify vehicle details directly
         return attrs
+    
+    def create(self, validated_data):
+        """Create a ride with stops."""
+        stops_data = validated_data.pop('stops_data', [])
+        
+        with transaction.atomic():
+            ride = Ride.objects.create(**validated_data)
+            
+            # Create stops
+            for stop_data in stops_data:
+                RideStop.objects.create(ride=ride, **stop_data)
+            
+            return ride
 
 
 class RideListSerializer(serializers.ModelSerializer):

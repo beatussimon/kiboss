@@ -50,8 +50,28 @@ class CreateAttachmentSerializer(serializers.Serializer):
         return data
 
 
+class MessageSenderSerializer(serializers.ModelSerializer):
+    """Serializer for message sender (minimal info)."""
+    id = serializers.UUIDField(read_only=True)
+    email = serializers.EmailField(read_only=True)
+    first_name = serializers.CharField(read_only=True)
+    last_name = serializers.CharField(read_only=True)
+    avatar = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'first_name', 'last_name', 'avatar']
+    
+    def get_avatar(self, obj):
+        """Get avatar from user profile."""
+        if hasattr(obj, 'profile') and obj.profile and obj.profile.avatar:
+            return obj.profile.avatar
+        return None
+
+
 class MessageSerializer(serializers.ModelSerializer):
     """Serializer for messages."""
+    sender = MessageSenderSerializer(read_only=True)
     sender_email = serializers.EmailField(source='sender.email', read_only=True)
     sender_name = serializers.SerializerMethodField()
     attachments = MessageAttachmentSerializer(many=True, read_only=True)
@@ -79,11 +99,17 @@ class ThreadParticipantSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(read_only=True)
     first_name = serializers.CharField(read_only=True)
     last_name = serializers.CharField(read_only=True)
-    avatar = serializers.URLField(read_only=True)
+    avatar = serializers.SerializerMethodField()
     
     class Meta:
         model = User
         fields = ['id', 'email', 'first_name', 'last_name', 'avatar']
+    
+    def get_avatar(self, obj):
+        """Get avatar from user profile if available."""
+        if hasattr(obj, 'profile') and obj.profile and hasattr(obj.profile, 'avatar') and obj.profile.avatar:
+            return obj.profile.avatar
+        return None
 
 
 class ThreadSerializer(serializers.ModelSerializer):

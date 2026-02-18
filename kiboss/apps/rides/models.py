@@ -56,11 +56,13 @@ class Ride(models.Model):
         related_name='driven_rides'
     )
     
-    # Vehicle reference (from assets)
+    # Vehicle reference (from assets) - optional, can specify vehicle details directly
     vehicle_asset = models.ForeignKey(
         'assets.Asset',
         on_delete=models.PROTECT,
-        related_name='rides'
+        related_name='rides',
+        null=True,
+        blank=True
     )
     
     # Status
@@ -141,12 +143,12 @@ class Ride(models.Model):
         super().save(*args, **kwargs)
     
     def get_available_seats(self):
-        """Get number of available seats."""
-        return max(0, self.total_seats - self.confirmed_seats)
+        """Get number of available seats (considering both reserved and confirmed)."""
+        return max(0, self.total_seats - self.reserved_seats - self.confirmed_seats)
     
     def is_full(self):
-        """Check if ride is fully booked."""
-        return self.confirmed_seats >= self.total_seats
+        """Check if ride is fully booked (considering both reserved and confirmed)."""
+        return (self.reserved_seats + self.confirmed_seats) >= self.total_seats
     
     def can_book(self):
         """Check if ride accepts new bookings."""
