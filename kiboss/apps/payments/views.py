@@ -5,6 +5,7 @@ from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import transaction
+from django.db.models import Sum
 from django.utils import timezone
 from kiboss.apps.payments.models import Payment, Dispute, PaymentStatus
 from kiboss.apps.payments.serializers import (
@@ -20,6 +21,35 @@ class PaymentViewSet(viewsets.ModelViewSet):
     """
     queryset = Payment.objects.all().order_by('-created_at')
     permission_classes = [permissions.IsAuthenticated]
+    
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        """Get payment summary for the current user."""
+        user = request.user
+        
+        # Total paid (as renter)
+        total_paid = Payment.objects.filter(
+            booking__renter=user,
+            status__in=[PaymentStatus.ESCROW, PaymentStatus.RELEASED]
+        ).aggregate(Sum('amount'))['amount__sum'] or 0
+        
+        # Total received (as owner)
+        total_received = Payment.objects.filter(
+            booking__asset__owner=user,
+            status=PaymentStatus.RELEASED
+        ).aggregate(Sum('amount'))['amount__sum'] or 0
+        
+        # In Escrow (as owner or renter)
+        in_escrow = Payment.objects.filter(
+            booking__asset__owner=user,
+            status=PaymentStatus.ESCROW
+        ).aggregate(Sum('amount'))['amount__sum'] or 0
+        
+        return Response({
+            'total_paid': total_paid,
+            'total_received': total_received,
+            'in_escrow': in_escrow
+        })
     
     def get_serializer_class(self):
         if self.action == 'list':

@@ -161,6 +161,33 @@ class Ride(models.Model):
         return True, None
 
 
+class RidePhoto(models.Model):
+    """Photos for rides."""
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    ride = models.ForeignKey(
+        Ride,
+        on_delete=models.CASCADE,
+        related_name='photos'
+    )
+    
+    image = models.ImageField(upload_to='ride_photos/%Y/%m/')
+    caption = models.CharField(max_length=255, blank=True)
+    order = models.PositiveIntegerField(default=0)
+    is_primary = models.BooleanField(default=False)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'ride_photos'
+        verbose_name = 'Ride Photo'
+        verbose_name_plural = 'Ride Photos'
+        ordering = ['order']
+    
+    def __str__(self):
+        return f"Photo for Ride {self.ride.id}"
+
+
 class RideStop(models.Model):
     """
     Pickup/dropoff points along the route.

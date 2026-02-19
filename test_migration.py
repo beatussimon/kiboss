@@ -10,8 +10,9 @@ from django.db import connection
 from django.db.migrations.loader import MigrationLoader
 loader = MigrationLoader(connection, ignore_no_migrations=True)
 print("Applied migrations:")
-for app_name, migrations in sorted(loader.migrated_apps.items()):
-    for mig in sorted(migrations):
+for app_name in sorted(loader.migrated_apps):
+    migrations = loader.disk_migrations.get(app_name, [])
+    for mig in migrations:
         print(f"  {app_name}: {mig}")
 
 # Check User model's manager

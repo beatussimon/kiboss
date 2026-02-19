@@ -4,7 +4,18 @@ Serializers for Rides API
 from rest_framework import serializers
 from django.db import transaction
 from django.utils import timezone
-from kiboss.apps.rides.models import Ride, RideStop, SeatBooking, RideSchedule
+from kiboss.apps.rides.models import Ride, RideStop, SeatBooking, RideSchedule, RidePhoto
+
+
+class RidePhotoSerializer(serializers.ModelSerializer):
+    """Serializer for ride photos."""
+    
+    url = serializers.ImageField(source='image', read_only=True)
+    
+    class Meta:
+        model = RidePhoto
+        fields = ['id', 'url', 'caption', 'order', 'is_primary', 'created_at']
+        read_only_fields = ['id', 'created_at']
 from kiboss.apps.users.serializers import UserSerializer
 from kiboss.apps.assets.serializers import AssetSerializer
 
@@ -124,6 +135,7 @@ class RideSerializer(serializers.ModelSerializer):
     available_seats = serializers.SerializerMethodField()
     stops = RideStopSerializer(many=True, read_only=True)
     stops_data = RideStopCreateSerializer(many=True, write_only=True, required=False)
+    photos = RidePhotoSerializer(many=True, read_only=True)
     
     class Meta:
         model = Ride
@@ -138,6 +150,7 @@ class RideSerializer(serializers.ModelSerializer):
             'vehicle_description', 'vehicle_color', 'vehicle_license_plate',
             'driver_notes', 'cancellation_cutoff_minutes',
             'no_show_cutoff_minutes', 'stops', 'stops_data',
+            'photos',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
@@ -172,16 +185,17 @@ class RideSerializer(serializers.ModelSerializer):
 
 class RideListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for ride listings."""
+    driver = UserSerializer(read_only=True)
     driver_email = serializers.EmailField(source='driver.email', read_only=True)
     available_seats = serializers.SerializerMethodField()
     
     class Meta:
         model = Ride
         fields = [
-            'id', 'driver_email', 'status',
+            'id', 'driver', 'driver_email', 'status',
             'origin', 'destination', 'route_name',
             'departure_time', 'total_seats',
-            'seat_price', 'currency', 'available_seats',
+            'seat_price', 'currency', 'available_seats', 'confirmed_seats',
             'vehicle_description'
         ]
         read_only_fields = fields

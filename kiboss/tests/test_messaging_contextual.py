@@ -67,6 +67,35 @@ class TestContextualMessagingAPI:
         assert response.data['context_type'] == 'BOOKING'
         assert response.data['context_id'] == str(test_booking.id)
 
+    def test_ride_context_creates_thread(
+        self, authenticated_client_second, test_ride, test_user
+    ):
+        """Passenger contacting driver on ride succeeds."""
+        url = reverse('thread-create-contextual')
+        payload = {
+            'target_user_id': str(test_ride.driver.id),
+            'thread_type': 'RIDE',
+            'ride_id': str(test_ride.id),
+        }
+        response = authenticated_client_second.post(url, payload, format='json')
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.data['context_type'] == 'RIDE'
+        assert response.data['context_id'] == str(test_ride.id)
+
+    def test_ride_context_fails_for_self(
+        self, authenticated_client, test_ride
+    ):
+        """Driver cannot contact themselves about their own ride."""
+        url = reverse('thread-create-contextual')
+        payload = {
+            'target_user_id': str(test_ride.driver.id),
+            'thread_type': 'RIDE',
+            'ride_id': str(test_ride.id),
+        }
+        response = authenticated_client.post(url, payload, format='json')
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data['code'] == 'SELF_CONVERSATION'
+
     def test_non_context_thread_creation_is_blocked(self, authenticated_client):
         url = reverse('thread-list')
         response = authenticated_client.post(

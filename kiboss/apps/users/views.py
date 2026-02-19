@@ -88,7 +88,7 @@ class PublicUserView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        serializer = PublicUserSerializer(user)
+        serializer = PublicUserSerializer(user, context={'request': request})
         return Response(serializer.data)
 
 
@@ -129,5 +129,11 @@ class RegisterView(APIView):
             first_name=first_name,
             last_name=last_name,
         )
+        
+        # Create profile and trust score
+        UserProfile.objects.get_or_create(user=user)
+        from .models import TrustScore
+        TrustScore.objects.get_or_create(user=user)
+        
         serializer = UserWithProfileSerializer(user)
         return Response(serializer.data, status=status.HTTP_201_CREATED)

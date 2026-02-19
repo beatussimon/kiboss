@@ -119,8 +119,34 @@ class ThreadViewSet(viewsets.ModelViewSet):
             thread.message_count += 1
             thread.save()
             
+            # Broadcast via Channels to the specific thread
+            from asgiref.sync import async_to_sync
+            from channels.layers import get_channel_layer
+            channel_layer = get_channel_layer()
+            
+            message_data = MessageSerializer(message).data
+            
+            async_to_sync(channel_layer.group_send)(
+                f'chat_{thread.id}',
+                {
+                    'type': 'chat_message',
+                    'data': message_data
+                }
+            )
+            
+            # Also broadcast to other participants' notification groups for unread counts
+            for participant in thread.participants.all():
+                if participant.id != request.user.id:
+                    async_to_sync(channel_layer.group_send)(
+                        f'notifications_{participant.id}',
+                        {
+                            'type': 'new_message',
+                            'data': message_data
+                        }
+                    )
+            
             return Response(
-                MessageSerializer(message).data,
+                message_data,
                 status=status.HTTP_201_CREATED
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

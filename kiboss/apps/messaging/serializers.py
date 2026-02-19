@@ -65,7 +65,10 @@ class MessageSenderSerializer(serializers.ModelSerializer):
     def get_avatar(self, obj):
         """Get avatar from user profile."""
         if hasattr(obj, 'profile') and obj.profile and obj.profile.avatar:
-            return obj.profile.avatar
+            try:
+                return obj.profile.avatar.url
+            except (ValueError, AttributeError):
+                return None
         return None
 
 
@@ -108,7 +111,10 @@ class ThreadParticipantSerializer(serializers.ModelSerializer):
     def get_avatar(self, obj):
         """Get avatar from user profile if available."""
         if hasattr(obj, 'profile') and obj.profile and hasattr(obj.profile, 'avatar') and obj.profile.avatar:
-            return obj.profile.avatar
+            try:
+                return obj.profile.avatar.url
+            except (ValueError, AttributeError):
+                return None
         return None
 
 

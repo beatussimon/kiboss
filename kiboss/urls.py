@@ -6,6 +6,8 @@ KIBOSS - Universal Rental & Sharing Operating System
 
 from django.urls import path, include
 from django.http import JsonResponse
+from django.conf import settings
+from django.conf.urls.static import static
 from rest_framework_simplejwt.views import TokenRefreshView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
@@ -49,9 +51,6 @@ urlpatterns = [
     # API v1 - Root
     path('api/v1/', api_root, name='api-root'),
     
-    # API v1 - Root
-    path('api/v1/', api_root, name='api-root'),
-    
     # API v1 - JWT Authentication (from users app)
     path('api/v1/auth/', include('kiboss.apps.users.urls')),
     
@@ -74,3 +73,7 @@ urlpatterns = [
     path('api/v1/audits/', include('kiboss.apps.audits.urls')),
     path('api/v1/common/', include('kiboss.apps.common.urls')),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

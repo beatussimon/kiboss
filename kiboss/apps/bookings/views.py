@@ -57,10 +57,17 @@ class BookingViewSet(viewsets.ViewSet):
     
     def list(self, request):
         """List user's bookings with optional filtering."""
-        # Get bookings where user is renter or asset owner
-        as_renter = Booking.objects.filter(renter=request.user)
-        as_owner = Booking.objects.filter(asset__owner=request.user)
-        queryset = as_renter | as_owner
+        role = request.query_params.get('role')
+        
+        if role == 'RENTER':
+            queryset = Booking.objects.filter(renter=request.user)
+        elif role == 'OWNER':
+            queryset = Booking.objects.filter(asset__owner=request.user)
+        else:
+            # Get bookings where user is renter or asset owner
+            as_renter = Booking.objects.filter(renter=request.user)
+            as_owner = Booking.objects.filter(asset__owner=request.user)
+            queryset = (as_renter | as_owner).distinct()
         
         # Filter by status
         status_filter = request.query_params.get('status')

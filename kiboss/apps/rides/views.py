@@ -6,7 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import transaction
 from django.utils import timezone
-from kiboss.apps.rides.models import Ride, RideStop, SeatBooking, RideSchedule
+from kiboss.apps.rides.models import Ride, RideStop, SeatBooking, RideSchedule, RidePhoto
 from kiboss.apps.rides.serializers import (
     RideSerializer, RideStopSerializer, SeatBookingSerializer,
     RideScheduleSerializer, RideListSerializer, SeatBookingCreateSerializer
@@ -42,7 +42,9 @@ class RideViewSet(viewsets.ModelViewSet):
         
         # Filter by driver
         driver_id = self.request.query_params.get('driver')
-        if driver_id:
+        if driver_id == 'me':
+            queryset = queryset.filter(driver=self.request.user)
+        elif driver_id:
             queryset = queryset.filter(driver_id=driver_id)
         
         # Filter by origin/destination
@@ -146,9 +148,62 @@ class RideViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
     
     @action(detail=True, methods=['post'])
+    def upload_photos(self, request, pk=None):
+        """Upload photos for a ride."""
+        ride = self.get_object()
+        
+        # Check if user is the driver
+        if ride.driver_id != request.user.id and not request.user.is_superuser:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Only the ride driver can upload photos')
+        
+        # Get uploaded files
+        files = request.FILES.getlist('images')
+        if not files:
+            # Try single file upload
+            single_file = request.FILES.get('image')
+            if single_file:
+                files = [single_file]
+            else:
+                from rest_framework.response import Response
+                from rest_framework import status
+                return Response(
+                    {'error': 'No images provided'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Check if is_primary is specified
+        is_primary = request.data.get('is_primary', 'false').lower() == 'true'
+        
+        created_photos = []
+        current_order = ride.photos.count()
+        
+        for i, file in enumerate(files[:10]):  # Max 10 images per upload
+            photo = RidePhoto.objects.create(
+                ride=ride,
+                image=file,
+                order=current_order + i,
+                is_primary=(is_primary and i == 0) or (current_order == 0 and i == 0)
+            )
+            created_photos.append(photo)
+        
+        from kiboss.apps.rides.serializers import RidePhotoSerializer
+        serializer = RidePhotoSerializer(created_photos, many=True)
+        from rest_framework.response import Response
+        from rest_framework import status
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'])
     def book(self, request, pk=None):
         """Book a seat on this ride."""
         ride = self.get_object()
+        
+        # Prevent self-booking
+        if ride.driver == request.user:
+            return Response(
+                {'error': 'You cannot book a seat on your own ride'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         # Get seat number from request
         seat_number = request.data.get('seat_number')
@@ -268,6 +323,12 @@ class SeatBookingViewSet(viewsets.ModelViewSet):
         ride = serializer.validated_data['ride']
         seat_number = serializer.validated_data['seat_number']
         
+        if ride.driver == request.user:
+            return Response(
+                {'error': 'You cannot book a seat on your own ride'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
         # Acquire Redis lock for seat booking
         lock_key = f"lock:ride:{ride.id}:seat:{seat_number}"
         lock_manager = get_lock_manager()
@@ -329,7 +390,9 @@ class SeatBookingViewSet(viewsets.ModelViewSet):
         
         # Filter by passenger
         passenger_id = self.request.query_params.get('passenger')
-        if passenger_id:
+        if passenger_id == 'me':
+            queryset = queryset.filter(passenger=self.request.user)
+        elif passenger_id:
             queryset = queryset.filter(passenger_id=passenger_id)
         
         # Filter by ride

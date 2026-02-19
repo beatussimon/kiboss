@@ -42,6 +42,7 @@ class BookingCreateSerializer(serializers.Serializer):
     quantity = serializers.IntegerField(min_value=1, default=1)
     notes = serializers.CharField(max_length=500, required=False, allow_blank=True)
     renter_notes = serializers.CharField(max_length=500, required=False, allow_blank=True)
+    payment_method = serializers.CharField(max_length=50, required=False, default='CREDIT_CARD')
     
     def validate(self, data):
         """Validate booking data."""

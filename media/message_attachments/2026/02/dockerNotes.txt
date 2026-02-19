@@ -1,0 +1,276 @@
+A container is way to package your application with all the neccesary dependencies and configuration
+
+-> Portable artifact, easly shared and moved around
+=> The packaging makes the whike development and deployment more efficient
+
+=> Containers live in a container repository, this is a special storage place for containers
+=> You can keep the docker repositories in a  local repo or the public repositories for docker
+
+
+The container is its own operating system isolated  layer
+Everything is packaged in its own isolated environment
+
+So inside the container for instance for postgres you have configuration, start script and the postgres image all packaged inside the container 
+
+Reardless of the system you are using they are all going to use the same docker commands this makes setting up the development envronment for your stack mote easier and efficient 
+
+You can have two different versions of your app running locally without confkicts
+
+How they improve the deployment process:
+
+The development team will give the code or app and the setup to the development team the issue with this is you need to configure and install eveything on the server, this can easly resilt to dependency conflicts and any misunderstandings between teams can easly result into problems forgetting and misinterpretation can result to problems bt with containers since theyare encapsulated eith in the single environment and no configuration ins needed on the server everything is simplified
+
+A docker image is a a layer of images and at the bottom is a linux base image which is very smaller in size =>>Alpine and at the top we have the application image
+
+to get the image you want you can type docker pull image:version and you can directly run the image and the docker knoews to find the image in docker hub if it doesnt find it on your machine
+
+and during installation/pulling the image you can see the different hashes of different images being downloaded and this proves that different layers are being downloaded 
+
+if upsates occur the advantage is that the different or updated dependencincy layers to what is dowmloaded will be downloaded
+
+Docker image 						Docker container
+is the actual package	the artifact that		Whn you pull the image and 
+is movable around					actually start it then that 							application is running inside t							the container, the container env is 							created
+
+
+==> not running then its and imagem running in my machine its a container
+
+=> if you pull the same applicaion but different version man layers will show up as exists and wont have to be pulled
+
+Docker vs virtual machine
+Dockr on OS level:
+os kernel and applocations layer are two layers that makes up an os
+Note: both docker and vms are vitualization tools
+
+Docker virtualizes the application layer and it uses the kernel of the host because it doesnt have its own kernel
+
+The vms virtualizes the entire os => the applocation and kernel layer, if you download vm image it uses its own image
+
+size; docker smaller couple of mbs while vm image is in couple of gbs
+
+speed: docker containers are much faster (starting and running) as opposed to vms which have to boot the kernel and the applications on top of it
+
+compatibility: Vms of any any host can run on any host of any os
+
+
+Container is the running env for the image
+container has a port that is binded to it and makes it possible to talk to the application
+
+In container the file system is vitual 
+
+commands:
+
+==> docker images -> lists the available docker images
+each image that you have will have a speciefic version and if you dont specify when pulling up the latest image vesion will be pulled
+
+docke ps => lists the running containers
+
+docker run image_name => this will run the image specified
+
+-d option make ip possible to run docker in detached mode
+
+you can stop and start the docker container of the specified id
+
+docker ps -a shows the containers that are running and the ones not running
+
+
+IF you docker ps one of the options listed is ports the container is litsening to THE INCOMING REQUESTS	
+
+Container port vs host port 
+Cant open two containers on the same port
+
+To make your port reachable outside the container you have to bind the port number of of your container to your machine
+
+command: docker run -p6000:6379 redis 
+
+
+COMMANDS FOR TROUBLESHOOOTING:
+docker logs container_id ==> shows the logs produced bu the specified container
+
+You can provide either the container_id or the container_name
+
+you can start the image with a different name using the following command:
+$ docker run -p6001:6379 -d --name oldredis redis:4.33
+
+docker exec => get the terminal of the running container
+command: docker exec -it (for interactive terminal) container_id /bin/bash
+
+you can check tha env variavles by typing .env to exit just type exit and instead of using the container id you can use the container name
+
+
+docker run => creaes a new container from the image
+
+docker start is used to start the existing containers and retains all the info used to create the container 
+
+
+=> To conclude docker run is user to start ner containers while docker start is used to  restart the existinig containers
+
+
+Docker has its own networks and to list them
+=> docker network ls
+=> docker network create network-name
+
+You can provide additional information= > the environment variables
+docker run -p 27017:27017 -d -e MONGO_INITDB_USERNAME=admin -e MONGO_INITDB_PASSWORD= password --name mongdb --net mongo-network  mongo
+
+to make the command readable on multiple lines end the command with \<F10>
+
+
+docker compose.yaml:
+
+version: '3'
+services: 
+	mongodb:
+		image: mongo
+		ports:
+			-2907:2907
+	mongo-express: 
+		image: mongo-express
+		port: 
+			-8080:8080
+		environmenr:
+			- ME_ENV_CONFIG_WHATEVER
+
+Docker compose takes an argumen -f and at the end you should specify what to do with the file
+
+command: docker-compose -f mongo.yaml up 
+
+before you run the commands its a good practice checking the running containers to avoid errors
+
+
+When creating a docker-compose.yaml file, you do not need to explicitly specify a network for services like MongoDB and Express to communicate. Docker Compose automatically creates a default network for your application if no networks are explicitly defined. All services within that docker-compose.yaml file are connected to this default network, allowing them to communicate with each other using their service names as hostnames. 
+
+IF YOU ARE MANUALLY DOING THE THINGS YOU SHOULD EXPLICITLY CREATE THE NETWORK
+
+You cn configure the waiting logic if there are containers that depend on each other so tthat the one independnt starts then the other follows
+
+
+IMPORTANT: When yous restart a container everything inside that container is gone
+
+and the data is lost, so there is no data persistence in the container itself
+
+DOCKER VOLUMES ARE FOR DATA PERSISTENCE
+
+if you pass down it shuts down all the containers and removes the network and next time you restart it the network will be recreated by docker
+
+docker-compose -f mongo.yaml down
+
+CREATING IMAGE FROM YOUR APP
+Dockerfile=> to buld an application we have to copy the arifacts to a dockerfile
+=> So the dockerfile is a blueprint for creating a docker image
+
+FROM node  => you always have to base your image on the other image =>installs node
+ENV => you can configure the enviromental variables this is an altenative to defining the environmental variables in docker files
+ ==> sets the evironment variables
+IMPORTANt: it better to define the environmental variables externally incase you have to change something, instead of bulding the image
+
+RUN mkdir -p/home/app => creates /home/app folder
+Using RUN you can execute any Linux command
+The directory you create is always going to live inside of a container and not on the host machine
+
+COPY ./home/app => copy current files to /home/app
+
+the COPY is executed on the host machine
+
+CMD ["node", "server.js"] => starts the app with: "node server.js"
+
+CDM=> is the entry point command and you can have multiple RUN commands
+
+To specify the version 
+FROM node:13-alpine
+
+
+
+
+
+To build the docker image after creating the dockerfile requires two parameters name and location
+
+command: docker build -t(for text) my-app:1.0(This is just the tag and youo can just call it versio something) . (since we are in the current directory) 
+
+when you run your image you have to specify the tag
+command: docker run myapp:1.0
+
+
+IMPORTANT: WHENEVER YOU ADJUST YOUR DOCKERFILE YOU NEED TO REBUILD YOUR IMAGE
+
+you delete your image like thid docker rmi container_id
+
+to get more insight use 
+command: docker exec -it(for interactive terminal) container_id /bin/bash (if bash isnt installed ny default use bin/sh) one of them has to work always
+
+IN ORDER TO DELETE THE IMAGE YOU HAVE TO STOP IT FIRST
+
+
+
+PRIVATE DOCKER REGISTRY
+
+IN amazon ECR you have to have a docker repository per image, what you store inside the repository are the different versions of the same image
+
+To be able to posh everything in a docker repo you shoul provide the credentials 
+
+To be able to execute commands you should have  
+AWS cli installed and have the credentials configured
+
+
+IMAGE NAMING IN DOCKER REPOSITORIES
+registryDomain/imageName:tag
+
+in docker hub we were able to get away with:
+docker pull mongo:2.2 || but in actuality this is the full command
+docker pull docker.io/library/mongo:4.2 
+
+docker tag=== rename this image
+command: docker tag my-app amaxon.longname.generated/my-app:1.0
+This will make a renamed copy of the provided image
+
+then to push: 
+command; docker push amaxon.longname.generated/my-app:1.0
+
+This will push the image layer by layer
+
+Digest in ECR is the unique hash of the image
+
+Docker login is done once
+
+THe docker compose would be used on the server to deploy all the applications/sservices
+
+PERSISting DAta with volumes:
+Used for data persistence in docker
+Folder in the physicel sysem is mounted into the virtual system of docker
+
+
+
+3VOLUME TYPES in docker;
+
+=> Docker run -v /home/mount/data:var/lib/mysql/data
+
+<Advantage of this is you decide where on the host file system the reference dis made
+
+2nd option:let docker automatically figure the location and each folder will be created for each container and that folder is the one mounted
+
+docker run -v /var/lib/mysql/daa
+
+
+3rd: Anonymous volumes
+docker run -v name:var/lib/mysql/data
+he volumes created from these are called named volumes
+These are the ones to be used in production
+
+in the volume level you can soecify that under which path a volume is mounted
+You can mount reference of more than one container on the same volume on host 
+this is beneficial if the container will have to share the data 
+
+On services level you have to list your volumes, list all volumes you are going to use in your containers
+
+volumes:
+	mongo-data:
+		drivers: local
+
+in the volume in the image level 
+host-volume-name  : path inside of the container
+
+for mysql: 	var/lib/mysql
+for postgres: var/lib/postgres/data
+
+Path differs for each database
+

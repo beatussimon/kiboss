@@ -1,5 +1,10 @@
-"""URL Configuration for Audits API"""
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from kiboss.apps.audits.views import AuditLogViewSet
 
-from django.urls import path
+router = DefaultRouter()
+router.register(r'logs', AuditLogViewSet)
 
-urlpatterns = []
+urlpatterns = [
+    path('', include(router.urls)),
+]

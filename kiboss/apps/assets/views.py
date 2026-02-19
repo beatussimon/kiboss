@@ -34,8 +34,13 @@ class AssetViewSet(viewsets.ModelViewSet):
         return AssetSerializer
     
     def perform_create(self, serializer):
-        """Set the owner to the current user when creating an asset."""
-        serializer.save(owner=self.request.user)
+        """Set the owner to the current user and auto-verify for local dev flow."""
+        serializer.save(
+            owner=self.request.user,
+            verification_status='VERIFIED',
+            verified_at=timezone.now(),
+            verified_by=self.request.user
+        )
 
     def perform_update(self, serializer):
         asset = self.get_object()
@@ -68,7 +73,9 @@ class AssetViewSet(viewsets.ModelViewSet):
         
         # Filter by owner
         owner_id = self.request.query_params.get('owner')
-        if owner_id:
+        if owner_id == 'me':
+            queryset = queryset.filter(owner=self.request.user)
+        elif owner_id:
             queryset = queryset.filter(owner_id=owner_id)
         
         # Filter by location

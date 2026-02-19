@@ -215,6 +215,7 @@ class AssetSerializer(serializers.ModelSerializer):
     asset_type = serializers.ChoiceField(choices=AssetType.choices, required=True)
     owner_email = serializers.EmailField(source='owner.email', read_only=True)
     is_verified = serializers.SerializerMethodField()
+    pricing_rules = AssetPricingSerializer(many=True, required=False)
     
     class Meta:
         model = Asset
@@ -227,10 +228,34 @@ class AssetSerializer(serializers.ModelSerializer):
             'verification_status', 'verification_notes',
             'is_active', 'is_listed', 'is_verified',
             'average_rating', 'total_reviews',
-            'properties',
+            'properties', 'pricing_rules',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'owner', 'owner_email', 'average_rating', 'total_reviews', 'created_at', 'updated_at']
     
     def get_is_verified(self, obj):
         return obj.verification_status == 'VERIFIED'
+
+    def create(self, validated_data):
+        pricing_rules_data = validated_data.pop('pricing_rules', [])
+        asset = Asset.objects.create(**validated_data)
+        for pricing_data in pricing_rules_data:
+            AssetPricing.objects.create(asset=asset, **pricing_data)
+        return asset
+
+    def update(self, instance, validated_data):
+        pricing_rules_data = validated_data.pop('pricing_rules', None)
+        
+        # Update asset fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        
+        # Update pricing rules if provided
+        if pricing_rules_data is not None:
+            # For simplicity, we'll replace all existing rules
+            instance.pricing_rules.all().delete()
+            for pricing_data in pricing_rules_data:
+                AssetPricing.objects.create(asset=instance, **pricing_data)
+                
+        return instance

@@ -93,20 +93,13 @@ class LocationService:
     def get_nearby_assets(latitude: float, longitude: float, radius_km: float = 50.0):
         """
         Get assets near a specific location
-        
-        Args:
-            latitude: Latitude of the location
-            longitude: Longitude of the location
-            radius_km: Search radius in kilometers (default: 50km)
-            
-        Returns:
-            List of assets within the specified radius, sorted by distance
         """
-        from kiboss.apps.assets.models import Asset
+        from kiboss.apps.assets.models import Asset, VerificationStatus
         
         # Get assets that are available with location data
         assets = Asset.objects.filter(
-            status__in=[Asset.Status.AVAILABLE, Asset.Status.ACTIVE]
+            is_active=True,
+            is_listed=True
         ).exclude(
             latitude__isnull=True, longitude__isnull=True
         )
@@ -131,15 +124,6 @@ class LocationService:
     def search_by_location(query: str, latitude: float = None, longitude: float = None, radius_km: float = 50.0):
         """
         Search for rides and assets by location query
-        
-        Args:
-            query: Search query string
-            latitude: Optional latitude for proximity search
-            longitude: Optional longitude for proximity search
-            radius_km: Search radius in kilometers (default: 50km)
-            
-        Returns:
-            Dictionary with rides and assets matching the query
         """
         from kiboss.apps.rides.models import Ride, RideStatus
         from kiboss.apps.assets.models import Asset
@@ -151,19 +135,22 @@ class LocationService:
         }
         
         # Search by text query
-        text_query = Q(origin__icontains=query) | Q(destination__icontains=query) | \
-                     Q(route_name__icontains=query)
+        text_query_rides = Q(origin__icontains=query) | Q(destination__icontains=query) | \
+                           Q(route_name__icontains=query)
         
         rides = Ride.objects.filter(
-            text_query,
+            text_query_rides,
             status__in=[RideStatus.OPEN, RideStatus.SCHEDULED],
             departure_time__gte=timezone.now()
         ).order_by('-departure_time')[:20]
         
+        text_query_assets = Q(name__icontains=query) | Q(description__icontains=query) | \
+                           Q(asset_type__icontains=query)
+        
         assets = Asset.objects.filter(
-            Q(name__icontains=query) | Q(description__icontains=query) | \
-            Q(category__icontains=query),
-            status__in=[Asset.Status.AVAILABLE, Asset.Status.ACTIVE]
+            text_query_assets,
+            is_active=True,
+            is_listed=True
         ).order_by('-created_at')[:20]
         
         # If coordinates provided, filter by proximity

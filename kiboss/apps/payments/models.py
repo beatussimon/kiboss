@@ -33,10 +33,26 @@ class PaymentStatus(models.TextChoices):
 
 
 class PaymentMethod(models.TextChoices):
-    """Payment method types."""
+    """Payment method types including Zenopay supported providers."""
+    # Cards
     CREDIT_CARD = 'CREDIT_CARD', 'Credit Card'
     DEBIT_CARD = 'DEBIT_CARD', 'Debit Card'
-    BANK_TRANSFER = 'BANK_TRANSFER', 'Bank Transfer'
+    
+    # Mobile Money (East Africa)
+    MPESA = 'MPESA', 'Vodacom M-Pesa'
+    TIGO_PESA = 'TIGO_PESA', 'Tigo Pesa'
+    AIRTEL_MONEY = 'AIRTEL_MONEY', 'Airtel Money'
+    HALOPESA = 'HALOPESA', 'Halo Pesa'
+    AZAM_PESA = 'AZAM_PESA', 'Azam Pesa'
+    
+    # Banking (Regional)
+    CRDB = 'CRDB', 'CRDB Bank'
+    NMB = 'NMB', 'NMB Bank'
+    ABS_BANK = 'ABSA', 'Absa Bank'
+    STANBIC = 'STANBIC', 'Stanbic Bank'
+    NBC = 'NBC', 'NBC Bank'
+    
+    # Wallet
     ZENOPAY_WALLET = 'ZENOPAY_WALLET', 'Zenopay Wallet'
 
 

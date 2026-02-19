@@ -163,7 +163,18 @@ class PublicUserSerializer(serializers.ModelSerializer):
         data['reviews'] = []
         data['rating'] = float(instance.trust_score) / 20 if instance.trust_score else 0
         data['review_count'] = instance.total_ratings_count
-        data['is_following'] = False
+        
+        # Check if following
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            from kiboss.apps.social.models import Follow
+            data['is_following'] = Follow.objects.filter(
+                follower=request.user,
+                following=instance
+            ).exists()
+        else:
+            data['is_following'] = False
+            
         data['username'] = instance.email.split('@')[0] if instance.email else ''
         
         return data
