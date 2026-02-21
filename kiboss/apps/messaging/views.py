@@ -88,6 +88,19 @@ class ThreadViewSet(viewsets.ModelViewSet):
             status=status.HTTP_400_BAD_REQUEST
         )
     
+    @action(detail=False, methods=['get'])
+    def unread_count(self, request):
+        """Get total unread message count for the user."""
+        from kiboss.apps.messaging.models import Message
+        count = Message.objects.filter(
+            thread__participants=request.user
+        ).exclude(
+            sender=request.user
+        ).exclude(
+            read_receipts__user=request.user
+        ).count()
+        return Response({'count': count})
+
     @action(detail=True, methods=['post'])
     def messages(self, request, pk=None):
         """Send a message to the thread."""
@@ -126,24 +139,38 @@ class ThreadViewSet(viewsets.ModelViewSet):
             
             message_data = MessageSerializer(message).data
             
-            async_to_sync(channel_layer.group_send)(
-                f'chat_{thread.id}',
-                {
-                    'type': 'chat_message',
-                    'data': message_data
-                }
-            )
+            # Convert UUID objects to strings for channel layer serialization
+            import json
+            from rest_framework.renderers import JSONRenderer
+            message_data_json = json.loads(JSONRenderer().render(message_data))
             
-            # Also broadcast to other participants' notification groups for unread counts
-            for participant in thread.participants.all():
-                if participant.id != request.user.id:
+            if channel_layer:
+                try:
+                    chat_group = f'chat_{str(thread.id)}'
                     async_to_sync(channel_layer.group_send)(
-                        f'notifications_{participant.id}',
+                        chat_group,
                         {
-                            'type': 'new_message',
-                            'data': message_data
+                            'type': 'chat_message',
+                            'data': message_data_json
                         }
                     )
+                    
+                    # Also broadcast to other participants' notification groups for unread counts
+                    for participant in thread.participants.all():
+                        if participant.id != request.user.id:
+                            participant_id_str = str(participant.id)
+                            notif_group = f'notifications_{participant_id_str}'
+                            async_to_sync(channel_layer.group_send)(
+                                notif_group,
+                                {
+                                    'type': 'new_message',
+                                    'data': message_data_json
+                                }
+                            )
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger('kiboss')
+                    logger.error(f"Failed to broadcast new message: {str(e)}")
             
             return Response(
                 message_data,
@@ -163,7 +190,7 @@ class ThreadViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        messages = thread.messages.filter(is_deleted=False).order_by('created_at')
+        messages = thread.messages.filter(is_deleted=False).order_by('-created_at')
         
         # Pagination
         paginator = MessagePagination()
@@ -397,6 +424,8 @@ class ThreadViewSet(viewsets.ModelViewSet):
             )
 
         with transaction.atomic():
+            # 1. Look for existing threads between these two users for this specific context
+            # We filter for threads that have BOTH the request user and target user
             existing_threads = (
                 Thread.objects.filter(
                     thread_type=thread_type,
@@ -405,19 +434,30 @@ class ThreadViewSet(viewsets.ModelViewSet):
                     participants=request.user,
                 )
                 .filter(participants=target_user)
-                .prefetch_related('participants')
+                .distinct()
                 .order_by('-updated_at')
             )
+            
             if existing_threads.exists():
+                # If multiple exist (due to past bugs), we pick the latest one
                 thread = existing_threads.first()
+                
+                # Cleanup fix: ensure the context IDs match (should already match due to filter)
+                # But we ensure related fields are synced
+                save_required = False
                 if thread.booking_id != getattr(booking, 'id', None):
                     thread.booking = booking
+                    save_required = True
                 if thread.ride_id != getattr(ride, 'id', None):
                     thread.ride = ride
-                thread.save(update_fields=['booking', 'ride', 'updated_at'])
+                    save_required = True
+                
+                if save_required:
+                    thread.save(update_fields=['booking', 'ride', 'updated_at'])
+                
                 return Response(ThreadSerializer(thread, context={'request': request}).data)
 
-            # Create new contextual thread
+            # 2. Create new contextual thread only if none found
             if not subject:
                 if context_type == ContextType.ASSET and asset is not None:
                     subject = f'Inquiry about {asset.name}'
@@ -474,15 +514,54 @@ class ThreadViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        unread = thread.messages.exclude(sender=request.user).exclude(read_receipts__user=request.user)
-        for message in unread:
-            message.read_receipts.get_or_create(user=request.user)
-            if message.status != 'READ':
-                message.status = 'READ'
-                message.read_at = timezone.now()
-                message.save(update_fields=['status', 'read_at', 'updated_at'])
+        from kiboss.apps.messaging.models import MessageReadReceipt
+        from django.db import transaction
 
-        return Response({'status': 'ok'})
+        # Find messages not sent by me and not already read by me
+        unread_messages = thread.messages.exclude(sender=request.user).exclude(read_receipts__user=request.user)
+        message_ids = list(unread_messages.values_list('id', flat=True))
+
+        if not message_ids:
+            return Response({'status': 'ok', 'count': 0})
+
+        with transaction.atomic():
+            # 1. Create receipts in bulk
+            receipts = [
+                MessageReadReceipt(message_id=m_id, user=request.user)
+                for m_id in message_ids
+            ]
+            MessageReadReceipt.objects.bulk_create(receipts, ignore_conflicts=True)
+
+            # 2. Update global status ONLY if it's not already READ
+            # This is a shared state, so we only set it once (the first time someone reads it)
+            thread.messages.filter(id__in=message_ids, status='SENT').update(
+                status='READ',
+                read_at=timezone.now(),
+                updated_at=timezone.now()
+            )
+
+        # 3. Broadcast to others
+        from asgiref.sync import async_to_sync
+        from channels.layers import get_channel_layer
+        channel_layer = get_channel_layer()
+        if channel_layer:
+            try:
+                chat_group = f'chat_{str(thread.id)}'
+                async_to_sync(channel_layer.group_send)(
+                    chat_group,
+                    {
+                        'type': 'chat_read_receipt',
+                        'user_id': str(request.user.id),
+                        'message_ids': [str(m_id) for m_id in message_ids]
+                    }
+                )
+            except Exception as e:
+                # Log but don't fail the request if broadcast fails
+                import logging
+                logger = logging.getLogger('kiboss')
+                logger.error(f"Failed to broadcast read receipt: {str(e)}")
+
+        return Response({'status': 'ok', 'count': len(message_ids)})
 
 
 class MessageViewSet(viewsets.ModelViewSet):
@@ -519,9 +598,43 @@ class MessageViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        message.status = 'READ'
-        message.read_at = timezone.now()
-        message.save()
+        from kiboss.apps.messaging.models import MessageReadReceipt
+        from django.db import transaction
+
+        # Don't mark our own messages as read by us
+        if message.sender == request.user:
+            return Response(MessageSerializer(message).data)
+
+        with transaction.atomic():
+            # Create receipt
+            MessageReadReceipt.objects.get_or_create(message=message, user=request.user)
+            
+            # Update global status ONLY if it's not already READ
+            if message.status != 'READ':
+                message.status = 'READ'
+                message.read_at = timezone.now()
+                message.save(update_fields=['status', 'read_at', 'updated_at'])
+                
+                # Broadcast read receipt
+                from asgiref.sync import async_to_sync
+                from channels.layers import get_channel_layer
+                channel_layer = get_channel_layer()
+                if channel_layer:
+                    try:
+                        chat_group = f'chat_{str(message.thread.id)}'
+                        async_to_sync(channel_layer.group_send)(
+                            chat_group,
+                            {
+                                'type': 'chat_read_receipt',
+                                'user_id': str(request.user.id),
+                                'message_ids': [str(message.id)]
+                            }
+                        )
+                    except Exception as e:
+                        import logging
+                        logger = logging.getLogger('kiboss')
+                        logger.error(f"Failed to broadcast individual read receipt: {str(e)}")
+            
         return Response(MessageSerializer(message).data)
     
     @action(detail=True, methods=['post'])
@@ -591,6 +704,3 @@ class AttachmentViewSet(viewsets.ModelViewSet):
             is_safe=True
         )
         return attachment
-
-
-from django.utils import timezone

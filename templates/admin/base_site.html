@@ -1,4 +1,4 @@
-{% extends "admin/base_site.html" %}
+{% extends "admin/base.html" %}
 {% load i18n static %}
 
 {% block title %}KIBOSS Admin Dashboard{% endblock %}
@@ -16,6 +16,10 @@
 <style>
     /* KIBOSS Admin Theme */
     :root {
+        --primary: #417690;
+        --header-bg: #417690;
+        --link-fg: #417690;
+        
         --kiboss-primary: #417690;
         --kiboss-secondary: #79aec8;
         --kiboss-success: #28a745;
@@ -23,6 +27,10 @@
         --kiboss-danger: #dc3545;
         --kiboss-info: #17a2b8;
     }
+    
+    #header { background: var(--primary); color: #fff; }
+    #branding h1 { color: #fff; }
+    #branding h1 a:link, #branding h1 a:visited { color: #fff; }
     
     /* Dashboard Statistics Cards */
     .kiboss-stats {
@@ -131,16 +139,4 @@
         font-size: 13px;
     }
 </style>
-{% endblock %}
-
-{% block welcome-msg %}
-{% trans 'Welcome,' %}
-<strong>{% firstof user.get_short_name user.get_username %}</strong>.
-{% endblock %}
-
-{% block userlinks %}
-{% if user.has_usable_password %}
-<a href="{% url 'admin:password_change' %}">{% trans 'Change password' %}</a> /
-{% endif %}
-<a href="{% url 'admin:logout' %}">{% trans 'Log out' %}</a>
 {% endblock %}

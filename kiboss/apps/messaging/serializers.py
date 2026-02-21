@@ -148,10 +148,7 @@ class ThreadSerializer(serializers.ModelSerializer):
     def get_unread_count(self, obj):
         request = self.context.get('request')
         if request and hasattr(request.user, 'id'):
-            return obj.messages.exclude(
-                sender=request.user,
-                read_receipts__user=request.user
-            ).exclude(status='READ').count()
+            return obj.messages.exclude(sender=request.user).exclude(read_receipts__user=request.user).count()
         return 0
 
 
@@ -165,16 +162,17 @@ class ThreadDetailSerializer(ThreadSerializer):
     def get_messages(self, obj):
         """Get messages with optional pagination."""
         request = self.context.get('request')
-        page = request.query_params.get('page') if request else None
-        page_size = request.query_params.get('page_size', '20') if request else '20'
+        # Use GET instead of query_params for standard request compatibility
+        page = request.GET.get('page') if request and hasattr(request, 'GET') else None
+        page_size = request.GET.get('page_size', '20') if request and hasattr(request, 'GET') else '20'
         
         try:
             page_size = int(page_size)
         except (ValueError, TypeError):
             page_size = 20
         
-        # Get messages in chronological order (oldest first)
-        messages = obj.messages.filter(is_deleted=False).order_by('created_at')
+        # Get messages in reverse chronological order to get the latest ones first
+        messages_qs = obj.messages.filter(is_deleted=False).order_by('-created_at')
         
         # If page is specified, return paginated results
         if page:
@@ -182,14 +180,16 @@ class ThreadDetailSerializer(ThreadSerializer):
                 page_num = int(page)
                 start = (page_num - 1) * page_size
                 end = start + page_size
-                messages = messages[start:end]
+                messages_list = list(messages_qs[start:end])
             except (ValueError, TypeError):
-                messages = messages[:page_size]
+                messages_list = list(messages_qs[:page_size])
         else:
             # Default: return last 50 messages for backward compatibility
-            messages = messages[:50]
+            messages_list = list(messages_qs[:50])
         
-        return MessageSerializer(messages, many=True).data
+        # Sort chronologically (oldest first) for the UI
+        messages_list.sort(key=lambda x: x.created_at)
+        return MessageSerializer(messages_list, many=True).data
 
 
 class CreateMessageSerializer(serializers.ModelSerializer):

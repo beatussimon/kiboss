@@ -1,0 +1,134 @@
+{% extends "admin/index.html" %}
+{% load i18n %}
+
+{% block content %}
+<div id="content-main">
+    <div class="kiboss-dashboard">
+        <!-- Statistics Cards -->
+        <h2 style="margin-bottom: 20px;">Dashboard Overview</h2>
+        
+        <div class="kiboss-stats">
+            <!-- Users Stats -->
+            <div class="kiboss-stat-card users">
+                <h3>Users</h3>
+                <div class="value">{{ kiboss_stats.users.total|default:"0" }}</div>
+                <div class="detail">
+                    Active: {{ kiboss_stats.users.active|default:"0" }} | 
+                    Blocked: {{ kiboss_stats.users.blocked|default:"0" }}
+                </div>
+            </div>
+            
+            <!-- Assets Stats -->
+            <div class="kiboss-stat-card assets">
+                <h3>Assets</h3>
+                <div class="value">{{ kiboss_stats.assets.total|default:"0" }}</div>
+                <div class="detail">
+                    Active: {{ kiboss_stats.assets.active|default:"0" }} | 
+                    Pending: {{ kiboss_stats.assets.pending_verification|default:"0" }}
+                </div>
+            </div>
+            
+            <!-- Bookings Stats -->
+            <div class="kiboss-stat-card bookings">
+                <h3>Bookings</h3>
+                <div class="value">{{ kiboss_stats.bookings.total|default:"0" }}</div>
+                <div class="detail">
+                    Active: {{ kiboss_stats.bookings.active|default:"0" }} | 
+                    Revenue: ${{ kiboss_stats.bookings.total_revenue|default:"0"|floatformat:2 }}
+                </div>
+            </div>
+            
+            <!-- Rides Stats -->
+            <div class="kiboss-stat-card rides">
+                <h3>Rides</h3>
+                <div class="value">{{ kiboss_stats.rides.total|default:"0" }}</div>
+                <div class="detail">
+                    Scheduled: {{ kiboss_stats.rides.scheduled|default:"0" }} | 
+                    In Transit: {{ kiboss_stats.rides.in_transit|default:"0" }}
+                </div>
+            </div>
+            
+            <!-- Payments Stats -->
+            <div class="kiboss-stat-card payments">
+                <h3>Payments</h3>
+                <div class="value">{{ kiboss_stats.payments.total|default:"0" }}</div>
+                <div class="detail">
+                    In Escrow: ${{ kiboss_stats.payments.in_escrow|default:"0"|floatformat:2 }} | 
+                    Released: ${{ kiboss_stats.payments.total_released|default:"0"|floatformat:2 }}
+                </div>
+            </div>
+            
+            <!-- Disputes Stats -->
+            <div class="kiboss-stat-card disputes">
+                <h3>Disputes</h3>
+                <div class="value">{{ kiboss_stats.disputes.total|default:"0" }}</div>
+                <div class="detail">
+                    Open: {{ kiboss_stats.disputes.open|default:"0" }} | 
+                    Resolved: {{ kiboss_stats.disputes.resolved|default:"0" }}
+                </div>
+            </div>
+        </div>
+        
+        <!-- Quick Actions -->
+        <div class="kiboss-card">
+            <div class="kiboss-card-header">Quick Actions</div>
+            <div class="kiboss-card-body">
+                <div class="quick-actions">
+                    <a href="{% url 'admin:users_user_changelist' %}" class="quick-action-btn">
+                        Manage Users
+                    </a>
+                    <a href="{% url 'admin:assets_asset_changelist' %}" class="quick-action-btn">
+                        Manage Assets
+                    </a>
+                    <a href="{% url 'admin:bookings_booking_changelist' %}" class="quick-action-btn">
+                        Manage Bookings
+                    </a>
+                    <a href="{% url 'admin:rides_ride_changelist' %}" class="quick-action-btn">
+                        Manage Rides
+                    </a>
+                    <a href="{% url 'admin:payments_dispute_changelist' %}" class="quick-action-btn">
+                        View Disputes
+                    </a>
+                    <a href="{% url 'admin:audits_auditlog_changelist' %}" class="quick-action-btn">
+                        Audit Logs
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{ block.super }}
+{% endblock %}
+
+{% block sidebar %}
+{{ block.super }}
+<div id="content-related">
+    <div class="module" id="recent-actions-module">
+        <h2>{% trans 'Recent Actions' %}</h2>
+        {% load log %}
+        {% get_admin_log 10 as admin_log %}
+        {% if admin_log %}
+        <ul class="actionlist">
+        {% for entry in admin_log %}
+            <li class="{% if entry.is_addition %}addlink{% endif %}{% if entry.is_change %}changelink{% endif %}{% if entry.is_deletion %}deletelink{% endif %}">
+                {% if entry.is_deletion %}
+                    {{ entry.object_repr }}
+                {% else %}
+                    <a href="{{ entry.get_absolute_url }}">{{ entry.object_repr }}</a>
+                {% endif %}
+                <br>
+                {% if entry.content_type %}
+                    <span class="mini quiet">{% filter capfirst %}{{ entry.content_type }}{% endfilter %}</span>
+                {% else %}
+                    <span class="mini quiet">{% trans 'Unknown content' %}</span>
+                {% endif %}
+            </li>
+        {% endfor %}
+        </ul>
+        {% else %}
+        <p>{% trans 'None available' %}</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

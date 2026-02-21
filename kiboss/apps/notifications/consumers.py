@@ -33,16 +33,24 @@ class NotificationConsumer(AsyncWebsocketConsumer):
 
     # Receive notification from room group
     async def notification_message(self, event):
-        # Send notification to WebSocket
-        await self.send(text_data=json.dumps({
-            'type': 'notification',
-            'data': event['data']
-        }))
+        try:
+            print(f"DEBUG: NotificationConsumer RECEIVED notification_message for {self.room_group_name}")
+            # Send notification to WebSocket
+            await self.send(text_data=json.dumps({
+                'type': 'notification',
+                'data': event['data']
+            }))
+        except Exception as e:
+            print(f"DEBUG: NotificationConsumer failed to send notification: {str(e)}")
 
     # Receive new message alert from room group
     async def new_message(self, event):
-        # Send message alert to WebSocket
-        await self.send(text_data=json.dumps({
-            'type': 'new_message',
-            'data': event['data']
-        }))
+        try:
+            print(f"DEBUG: NotificationConsumer RECEIVED new_message for {self.room_group_name}")
+            # Send message alert to WebSocket
+            await self.send(text_data=json.dumps({
+                'type': 'new_message',
+                'data': event['data']
+            }))
+        except Exception as e:
+            print(f"DEBUG: NotificationConsumer failed to send new_message: {str(e)}")

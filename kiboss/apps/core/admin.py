@@ -40,6 +40,7 @@ class KibossAdminSite(AdminSite):
     site_header = 'KIBOSS Administration'
     site_title = 'KIBOSS Admin Portal'
     index_title = 'Dashboard Overview'
+    index_template = 'admin/kiboss_index.html'
     
     def get_app_list(self, request, app_label=None):
         """
