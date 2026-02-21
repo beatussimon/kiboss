@@ -36,18 +36,27 @@ class CurrentUserView(APIView):
         user_data = {}
         profile_data = {}
         
+        # Merge POST data and FILES
+        # request.data already includes both for MultiPartParser
         for key, value in request.data.items():
             if key in ['first_name', 'last_name']:
                 user_data[key] = value
             elif key in ['phone', 'bio', 'avatar', 'address', 'city', 'state', 'country', 'postal_code']:
                 profile_data[key] = value
         
+        # Explicitly check request.FILES for avatar if not found in request.data
+        if 'avatar' in request.FILES:
+            profile_data['avatar'] = request.FILES['avatar']
+        
+        print(f"DEBUG: Updating user {user.email}. user_data keys: {list(user_data.keys())}, profile_data keys: {list(profile_data.keys())}")
+        
         # Update user fields
         if user_data:
-            user_serializer = UserWithProfileSerializer(user, data=user_data, partial=True)
+            user_serializer = UserSerializer(user, data=user_data, partial=True)
             if user_serializer.is_valid():
                 user_serializer.save()
             else:
+                print(f"DEBUG: User update failed: {user_serializer.errors}")
                 return Response(
                     {'error': 'Failed to update user', 'details': user_serializer.errors},
                     status=status.HTTP_400_BAD_REQUEST
@@ -60,6 +69,7 @@ class CurrentUserView(APIView):
             if profile_serializer.is_valid():
                 profile_serializer.save()
             else:
+                print(f"DEBUG: Profile update failed: {profile_serializer.errors}")
                 return Response(
                     {'error': 'Failed to update profile', 'details': profile_serializer.errors},
                     status=status.HTTP_400_BAD_REQUEST
