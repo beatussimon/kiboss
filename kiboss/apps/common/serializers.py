@@ -5,6 +5,24 @@ Serializers for Common API
 from rest_framework import serializers
 
 
+from .models import Feedback
+
+class FeedbackSerializer(serializers.ModelSerializer):
+    """Serializer for User Feedback"""
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+
+    class Meta:
+        model = Feedback
+        fields = [
+            'id', 'category', 'subject', 'message', 
+            'is_resolved', 'created_at', 'user_email'
+        ]
+        read_only_fields = ['id', 'created_at', 'is_resolved']
+
+    def create(self, validated_data):
+        validated_data['user'] = self.context['request'].user
+        return super().create(validated_data)
+
 class LocationQuerySerializer(serializers.Serializer):
     """Serializer for location-based queries"""
     

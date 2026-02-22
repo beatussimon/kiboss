@@ -7,7 +7,14 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import User, UserProfile
+from .models import User, UserProfile, CorporateProfile
+
+
+class CorporateProfileSerializer(serializers.ModelSerializer):
+    """Serializer for CorporateProfile model."""
+    class Meta:
+        model = CorporateProfile
+        fields = ['id', 'company_name', 'registration_number', 'tax_id', 'verification_status', 'created_at']
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -31,7 +38,10 @@ class UserProfileSerializer(serializers.ModelSerializer):
 class UserWithProfileSerializer(serializers.ModelSerializer):
     """Serializer for User model with profile data."""
     profile = UserProfileSerializer(read_only=True)
+    corporate_profile = CorporateProfileSerializer(read_only=True)
     verification_badge = serializers.SerializerMethodField()
+    roles = serializers.SerializerMethodField()
+    permissions = serializers.SerializerMethodField()
     
     class Meta:
         model = User
@@ -40,18 +50,40 @@ class UserWithProfileSerializer(serializers.ModelSerializer):
             'is_email_verified', 'is_phone_verified', 'is_identity_verified',
             'trust_score', 'total_ratings_count', 'is_blocked',
             'verification_tier', 'verification_badge',
-            'profile',
+            'is_staff', 'is_superuser',
+            'profile', 'corporate_profile', 'roles', 'permissions',
         ]
-        read_only_fields = ['id', 'is_email_verified', 'is_phone_verified', 'is_identity_verified', 'trust_score', 'total_ratings_count', 'is_blocked', 'verification_badge']
+        read_only_fields = [
+            'id', 'is_email_verified', 'is_phone_verified', 'is_identity_verified', 
+            'trust_score', 'total_ratings_count', 'is_blocked', 
+            'verification_badge', 'roles', 'permissions', 'is_staff', 'is_superuser',
+            'corporate_profile'
+        ]
     
     def get_verification_badge(self, obj):
         """Get verification badge info."""
         return obj.verification_badge
+
+    def get_roles(self, obj):
+        """Get user roles."""
+        from kiboss.apps.rbac.serializers import UserRoleSerializer
+        return UserRoleSerializer(obj.user_roles.all(), many=True).data
+
+    def get_permissions(self, obj):
+        """Get flattened list of unique permission codes."""
+        from kiboss.apps.rbac.models import RolePermission
+        roles = obj.user_roles.values_list('role', flat=True)
+        perms = RolePermission.objects.filter(role__in=roles).values_list('permission', flat=True)
+        return list(set(perms))
 
 
 class UserSerializer(serializers.ModelSerializer):
     """Serializer for User model."""
+    profile = UserProfileSerializer(read_only=True)
+    corporate_profile = CorporateProfileSerializer(read_only=True)
     verification_badge = serializers.SerializerMethodField()
+    roles = serializers.SerializerMethodField()
+    permissions = serializers.SerializerMethodField()
     
     class Meta:
         model = User
@@ -60,12 +92,31 @@ class UserSerializer(serializers.ModelSerializer):
             'is_email_verified', 'is_phone_verified', 'is_identity_verified',
             'trust_score', 'total_ratings_count', 'is_blocked',
             'verification_tier', 'verification_badge',
+            'is_staff', 'is_superuser',
+            'roles', 'permissions', 'profile', 'corporate_profile',
         ]
-        read_only_fields = ['id', 'is_email_verified', 'is_phone_verified', 'is_identity_verified', 'trust_score', 'total_ratings_count', 'is_blocked', 'verification_badge']
+        read_only_fields = [
+            'id', 'is_email_verified', 'is_phone_verified', 'is_identity_verified', 
+            'trust_score', 'total_ratings_count', 'is_blocked', 
+            'verification_badge', 'roles', 'permissions', 'is_staff', 'is_superuser', 
+            'profile', 'corporate_profile'
+        ]
     
     def get_verification_badge(self, obj):
         """Get verification badge info."""
         return obj.verification_badge
+
+    def get_roles(self, obj):
+        """Get user roles."""
+        from kiboss.apps.rbac.serializers import UserRoleSerializer
+        return UserRoleSerializer(obj.user_roles.all(), many=True).data
+
+    def get_permissions(self, obj):
+        """Get flattened list of unique permission codes."""
+        from kiboss.apps.rbac.models import RolePermission
+        roles = obj.user_roles.values_list('role', flat=True)
+        perms = RolePermission.objects.filter(role__in=roles).values_list('permission', flat=True)
+        return list(set(perms))
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):

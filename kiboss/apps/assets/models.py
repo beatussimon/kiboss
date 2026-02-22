@@ -30,6 +30,13 @@ class AssetType(models.TextChoices):
     VEHICLE = 'VEHICLE', 'Vehicle'
     SEAT_SERVICE = 'SEAT_SERVICE', 'Seat Service (Ride-sharing)'
     TIME_SERVICE = 'TIME_SERVICE', 'Time-based Service'
+    
+    # Corporate Hospitality
+    HOTEL = 'HOTEL', 'Hotel Property'
+    RESTAURANT = 'RESTAURANT', 'Restaurant Property'
+    HOTEL_ROOM = 'HOTEL_ROOM', 'Hotel Room'
+    CONFERENCE_HALL = 'CONFERENCE_HALL', 'Conference Hall'
+    DINING_TABLE = 'DINING_TABLE', 'Dining Table'
 
 
 class VerificationStatus(models.TextChoices):
@@ -50,6 +57,16 @@ class Asset(models.Model):
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     
+    # Hierarchy for Corporate Assets (Property -> Service)
+    parent = models.ForeignKey(
+        'self',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='child_services',
+        help_text="Parent property for services (e.g., Hotel for a Room)"
+    )
+    
     # Basic information
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
@@ -66,18 +83,21 @@ class Asset(models.Model):
         related_name='assets'
     )
     
+    # Corporate Flag
+    is_corporate = models.BooleanField(default=False)
+    
     # Location
     address = models.TextField(blank=True)
     city = models.CharField(max_length=100, blank=True)
     state = models.CharField(max_length=100, blank=True)
-    country = models.CharField(max_length=100, blank=True)
+    country = models.CharField(max_length=100, default='Tanzania', blank=True)
     postal_code = models.CharField(max_length=20, blank=True)
     latitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
     longitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
     
     # Jurisdiction (for legal compliance)
-    jurisdiction = models.CharField(max_length=100, default='US')
-    timezone = models.CharField(max_length=50, default='UTC')
+    jurisdiction = models.CharField(max_length=100, default='TZ')
+    timezone = models.CharField(max_length=50, default='Africa/Dar_es_Salaam')
     
     # Verification
     verification_status = models.CharField(
@@ -132,10 +152,68 @@ class Asset(models.Model):
         """Get a property value from the JSON field."""
         return self.properties.get(key, default)
     
-    def set_property(self, key, value):
-        """Set a property value."""
-        self.properties[key] = value
-        self.save(update_fields=['properties', 'updated_at'])
+    def clean(self):
+        """
+        Enforce business logic and hierarchy integrity.
+        """
+        from django.core.exceptions import ValidationError
+        
+        # 1. Circular Dependency Check
+        if self.parent and self.parent == self:
+            raise ValidationError({'parent': "An asset cannot be its own parent."})
+            
+        if self.parent and self.parent.parent:
+             # Prevent deep nesting (>1 level) for now to keep architecture flat (Property -> Service)
+             # If we need deeper nesting later (Resort -> Building -> Room), we can relax this.
+             raise ValidationError({'parent': "Deep nesting is not allowed. Services must link directly to a root Property."})
+
+        # 2. Hierarchy Type Integrity
+        if self.parent:
+            parent_type = self.parent.asset_type
+            my_type = self.asset_type
+            
+            # Hotel Rules
+            if my_type in [AssetType.HOTEL_ROOM, AssetType.CONFERENCE_HALL]:
+                if parent_type != AssetType.HOTEL:
+                    raise ValidationError({'parent': f"{self.get_asset_type_display()} must belong to a Hotel Property."})
+            
+            # Restaurant Rules
+            if my_type == AssetType.DINING_TABLE:
+                if parent_type != AssetType.RESTAURANT:
+                    raise ValidationError({'parent': "Dining Tables must belong to a Restaurant Property."})
+            
+            # Standalone assets cannot have parents
+            if my_type in [AssetType.VEHICLE, AssetType.TOOL, AssetType.HOTEL, AssetType.RESTAURANT]:
+                raise ValidationError({'parent': f"{self.get_asset_type_display()} cannot be a child service."})
+
+    def save(self, *args, **kwargs):
+        """
+        Enforce business rules and anti-fraud logic.
+        """
+        # Run standard validation
+        self.clean()
+        
+        # Anti-Fraud: "Bait and Switch" Protection
+        # If critical fields change on a VERIFIED asset, revoke status.
+        if self.pk:
+            try:
+                original = Asset.objects.get(pk=self.pk)
+                critical_fields = ['name', 'address', 'city', 'country', 'asset_type']
+                is_changed = any(getattr(self, field) != getattr(original, field) for field in critical_fields)
+                
+                if is_changed and self.verification_status == VerificationStatus.VERIFIED:
+                    self.verification_status = VerificationStatus.PENDING
+                    self.verification_notes = f"System: Verification revoked due to changes in {', '.join(critical_fields)}."
+                    self.is_listed = False # Delist immediately
+            except Asset.DoesNotExist:
+                # This should not happen if self.pk exists but just in case
+                pass
+        
+        # Rule: Corporate assets cannot be listed until verified.
+        if self.is_corporate and self.verification_status != VerificationStatus.VERIFIED:
+            self.is_listed = False
+            
+        super().save(*args, **kwargs)
 
 
 class AssetPhoto(models.Model):
@@ -163,6 +241,48 @@ class AssetPhoto(models.Model):
     
     def __str__(self):
         return f"Photo for {self.asset.name}"
+
+
+class AssetDocument(models.Model):
+    """Documents for asset verification (e.g., registration, insurance)."""
+    
+    DOCUMENT_TYPES = [
+        ('REGISTRATION', 'Vehicle Registration'),
+        ('INSURANCE', 'Insurance Policy'),
+        ('INSPECTION', 'Safety Inspection'),
+        ('OWNERSHIP', 'Proof of Ownership'),
+        ('OTHER', 'Other'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    asset = models.ForeignKey(
+        Asset,
+        on_delete=models.CASCADE,
+        related_name='documents'
+    )
+    
+    document_type = models.CharField(max_length=50, choices=DOCUMENT_TYPES)
+    file = models.FileField(upload_to='asset_documents/%Y/%m/')
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    
+    # Expiry date for documents like insurance
+    expiry_date = models.DateField(blank=True, null=True)
+    
+    # Verification status for this specific document
+    is_verified = models.BooleanField(default=False)
+    verification_notes = models.TextField(blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'asset_documents'
+        verbose_name = 'Asset Document'
+        verbose_name_plural = 'Asset Documents'
+    
+    def __str__(self):
+        return f"{self.get_document_type_display()} for {self.asset.name}"
 
 
 class AssetPricing(models.Model):

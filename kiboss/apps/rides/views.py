@@ -2,6 +2,7 @@
 Views for Rides API - Ride-Sharing Module
 """
 from rest_framework import viewsets, status, permissions
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import transaction
@@ -11,7 +12,102 @@ from kiboss.apps.rides.serializers import (
     RideSerializer, RideStopSerializer, SeatBookingSerializer,
     RideScheduleSerializer, RideListSerializer, SeatBookingCreateSerializer
 )
+from kiboss.apps.assets.models import Asset, AssetType, VerificationStatus, AssetDocument
+from kiboss.apps.assets.serializers import AssetSerializer
+from kiboss.apps.tasks.models import StaffTask, TaskType, TaskPriority, TaskStatus
+from django.contrib.contenttypes.models import ContentType
 from kiboss.apps.common.locking import get_lock_manager, LockAcquisitionError
+
+
+class VehicleRegistrationViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for vehicle registration and verification submission.
+    """
+    queryset = Asset.objects.filter(asset_type=AssetType.VEHICLE)
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser] # Explicit parsers
+
+    def get_queryset(self):
+        return self.queryset.filter(owner=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        """
+        Register a vehicle and submit for verification.
+        """
+        # 1. Create the Asset (Vehicle)
+        data = request.data.copy()
+        
+        # Ensure correct asset type and owner
+        data['asset_type'] = AssetType.VEHICLE
+        # Force pending status initially
+        data['verification_status'] = VerificationStatus.PENDING
+        
+        serializer = AssetSerializer(data=data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        
+        with transaction.atomic():
+            asset = serializer.save(
+                owner=request.user, 
+                asset_type=AssetType.VEHICLE, 
+                verification_status=VerificationStatus.PENDING
+            )
+            
+            # 2. Handle documents
+            # Support multiple files with 'documents' key
+            files = request.FILES.getlist('documents')
+            # Support optional document_types list matching files
+            doc_types = request.data.getlist('document_types') if hasattr(request.data, 'getlist') else []
+            
+            for i, file in enumerate(files):
+                doc_type = doc_types[i] if i < len(doc_types) else 'OTHER'
+                AssetDocument.objects.create(
+                    asset=asset,
+                    document_type=doc_type,
+                    file=file,
+                    name=file.name
+                )
+                
+            # 3. Create StaffTask for verification using the new service
+            from kiboss.apps.common.services import VerificationService
+            try:
+                VerificationService.request_verification(asset, request.user)
+            except Exception as e:
+                # Log error but don't fail the registration completely?
+                # Ideally, we should rollback if task creation fails, which atomic block handles.
+                raise e
+            
+            # 4. If any photos were uploaded, add them
+            photos = request.FILES.getlist('photos')
+            for i, photo in enumerate(photos):
+                from kiboss.apps.assets.models import AssetPhoto
+                AssetPhoto.objects.create(
+                    asset=asset,
+                    image=photo,
+                    order=i,
+                    is_primary=(i == 0)
+                )
+        
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='submit_verification')
+    def submit_verification(self, request, pk=None):
+        """
+        Submit an existing vehicle for verification.
+        """
+        try:
+            asset = self.get_object()
+        except Exception:
+            return Response({'error': 'Vehicle not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        if asset.verification_status == VerificationStatus.VERIFIED:
+            return Response({'error': 'Vehicle is already verified'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        with transaction.atomic():
+            # Use the service to request verification
+            from kiboss.apps.common.services import VerificationService
+            VerificationService.request_verification(asset, request.user)
+            
+        return Response({'status': 'Verification submitted'})
 
 
 class RideViewSet(viewsets.ModelViewSet):
@@ -29,8 +125,27 @@ class RideViewSet(viewsets.ModelViewSet):
         return RideSerializer
     
     def perform_create(self, serializer):
-        """Set the driver to the current user when creating a ride."""
-        serializer.save(driver=self.request.user)
+        """
+        Set the driver to the current user and ensure they have a verified vehicle.
+        This enforces the verification workflow.
+        """
+        user = self.request.user
+        
+        # Check if user has at least one verified vehicle asset
+        has_verified_vehicle = Asset.objects.filter(
+            owner=user,
+            asset_type=AssetType.VEHICLE,
+            verification_status=VerificationStatus.VERIFIED
+        ).exists()
+        
+        if not has_verified_vehicle and not user.is_superuser:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({
+                'error': 'Vehicle verification required',
+                'message': 'You must have a verified vehicle to offer a ride. Please register your vehicle first.'
+            })
+            
+        serializer.save(driver=user)
     
     def get_queryset(self):
         queryset = Ride.objects.select_related('driver', 'vehicle_asset').prefetch_related('stops').order_by('-departure_time')

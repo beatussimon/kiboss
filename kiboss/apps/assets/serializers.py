@@ -3,7 +3,7 @@ Serializers for KIBOSS Asset API
 """
 
 from rest_framework import serializers
-from kiboss.apps.assets.models import Asset, AssetType, AssetPhoto, AssetPricing, AssetAvailability, AssetCapacity, AssetTimeGranularity
+from kiboss.apps.assets.models import Asset, AssetType, AssetPhoto, AssetDocument, AssetPricing, AssetAvailability, AssetCapacity, AssetTimeGranularity
 
 
 class AssetPhotoSerializer(serializers.ModelSerializer):
@@ -15,6 +15,19 @@ class AssetPhotoSerializer(serializers.ModelSerializer):
         model = AssetPhoto
         fields = ['id', 'url', 'caption', 'order', 'is_primary', 'created_at']
         read_only_fields = ['id', 'created_at']
+
+
+class AssetDocumentSerializer(serializers.ModelSerializer):
+    """Serializer for asset documents."""
+    
+    class Meta:
+        model = AssetDocument
+        fields = [
+            'id', 'document_type', 'file', 'name', 
+            'description', 'expiry_date', 'is_verified',
+            'verification_notes', 'created_at'
+        ]
+        read_only_fields = ['id', 'is_verified', 'verification_notes', 'created_at']
 
 
 class AssetCapacitySerializer(serializers.ModelSerializer):
@@ -108,7 +121,7 @@ class AssetListSerializer(serializers.ModelSerializer):
             'verification_status', 'verification_status_display', 'is_verified',
             'is_active', 'is_listed',
             'average_rating', 'total_reviews',
-            'photos',
+            'properties', 'photos',
             'created_at', 'updated_at'
         ]
         read_only_fields = fields

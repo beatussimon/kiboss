@@ -228,6 +228,7 @@ def register_all_models():
     # Users App
     from kiboss.apps.users.models import User, UserProfile, TrustScore, Device, BlacklistedToken
     from kiboss.apps.users.admin import UserAdmin, DeviceAdmin, BlacklistedTokenAdmin
+    from kiboss.apps.core.models import SystemConfiguration
     from django.contrib.admin import ModelAdmin
     
     admin_site.register(User, UserAdmin)
@@ -235,6 +236,7 @@ def register_all_models():
     admin_site.register(TrustScore, ModelAdmin)
     admin_site.register(Device, DeviceAdmin)
     admin_site.register(BlacklistedToken, BlacklistedTokenAdmin)
+    admin_site.register(SystemConfiguration, ModelAdmin)
     
     # Assets App
     from kiboss.apps.assets.models import (

@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'kiboss.apps.social',
     'kiboss.apps.audits',
     'kiboss.apps.rbac',
+    'kiboss.apps.tasks',
 ]
 
 MIDDLEWARE = [
@@ -103,10 +104,14 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 # Internationalization
-LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
+LANGUAGE_CODE = 'en-tz'
+TIME_ZONE = 'Africa/Dar_es_Salaam'
 USE_I18N = True
 USE_TZ = True
+
+# KIBOSS Defaults
+KIBOSS_DEFAULT_CURRENCY = 'TZS'
+KIBOSS_DEFAULT_COUNTRY = 'Tanzania'
 
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = '/static/'

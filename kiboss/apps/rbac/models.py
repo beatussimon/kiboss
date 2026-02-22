@@ -24,7 +24,9 @@ class Role(models.TextChoices):
     FINANCE = 'FINANCE', 'Finance'
     LEGAL = 'LEGAL', 'Legal'
     MODERATOR = 'MODERATOR', 'Moderator'
-    VERIFIER = 'VERIFIER', 'Verifier'
+    VERIFIER = 'VERIFIER', 'General Verifier'
+    CAR_VERIFIER = 'CAR_VERIFIER', 'Car Verifier'
+    BUSINESS_VERIFIER = 'BUSINESS_VERIFIER', 'Business Verifier'
 
 
 class Permission(models.TextChoices):
@@ -78,6 +80,7 @@ class Permission(models.TextChoices):
     AUDIT_VIEW = 'AUDIT_VIEW', 'View Audit Logs'
     SETTINGS_EDIT = 'SETTINGS_EDIT', 'Edit Settings'
     ROLE_MANAGE = 'ROLE_MANAGE', 'Manage Roles'
+    SUPPORT_TICKET = 'SUPPORT_TICKET', 'Handle Support Tickets'
 
 
 class RolePermission(models.Model):

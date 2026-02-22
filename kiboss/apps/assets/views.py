@@ -4,14 +4,16 @@ Views for Assets API - Universal Asset System
 from rest_framework import viewsets, status, filters, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from django.db.models import Avg
 from django.utils import timezone
-from kiboss.apps.assets.models import Asset, AssetPhoto, AssetPricing, AssetAvailability
+from django.contrib.contenttypes.models import ContentType
+from kiboss.apps.assets.models import Asset, AssetPhoto, AssetPricing, AssetAvailability, AssetType, VerificationStatus
 from kiboss.apps.assets.serializers import (
     AssetSerializer, AssetDetailSerializer, AssetListSerializer,
     AssetPhotoSerializer, AssetPricingSerializer, AssetAvailabilitySerializer
 )
+from kiboss.apps.tasks.models import StaffTask, TaskType, TaskStatus, TaskPriority
 
 
 class AssetViewSet(viewsets.ModelViewSet):
@@ -34,13 +36,85 @@ class AssetViewSet(viewsets.ModelViewSet):
         return AssetSerializer
     
     def perform_create(self, serializer):
-        """Set the owner to the current user and auto-verify for local dev flow."""
-        serializer.save(
-            owner=self.request.user,
-            verification_status='VERIFIED',
-            verified_at=timezone.now(),
-            verified_by=self.request.user
-        )
+        """
+        Handle asset creation with Corporate and Property verification gates.
+        """
+        asset_type = serializer.validated_data.get('asset_type')
+        user = self.request.user
+        
+        # CORPORATE GATE: Creating a Property (Hotel/Restaurant)
+        if asset_type in [AssetType.HOTEL, AssetType.RESTAURANT]:
+            # 1. Check if user has a Corporate Profile
+            if not hasattr(user, 'corporate_profile'):
+                raise PermissionDenied("Corporate verification required. Please register as a business first.")
+            
+            # 2. Check if Corporate Profile is Verified or Pending
+            # Allow PENDING profiles to create, but they won't be listed until verified
+            if user.corporate_profile.verification_status not in ['VERIFIED', 'PENDING']:
+                raise PermissionDenied("Your corporate account must be in good standing.")
+            
+            # 3. Save as PENDING and create Verification Task
+            asset = serializer.save(
+                owner=user,
+                verification_status=VerificationStatus.PENDING,
+                is_corporate=True,
+                is_listed=False # Never list until verified
+            )
+            
+            # Create StaffTask for Property Verification
+            StaffTask.objects.create(
+                title=f"Verify Property: {asset.name}",
+                description=f"New {asset.get_asset_type_display()} registration from {user.corporate_profile.company_name}",
+                task_type=TaskType.ASSET_AUDIT,
+                status=TaskStatus.PENDING,
+                priority=TaskPriority.HIGH,
+                assigned_role='OPS',
+                content_type=ContentType.objects.get_for_model(Asset),
+                object_id=asset.id,
+                created_by=user
+            )
+            return
+
+        # SERVICE GATE: Creating a Service (Room/Hall) inside a Property
+        if asset_type in [AssetType.HOTEL_ROOM, AssetType.CONFERENCE_HALL, AssetType.DINING_TABLE]:
+            parent = serializer.validated_data.get('parent')
+            if not parent:
+                raise ValidationError({"parent": "This service must be linked to a parent property (Hotel/Restaurant)."})
+            
+            # 1. Check ownership
+            if parent.owner != user:
+                raise PermissionDenied("You do not own the parent property.")
+            
+            # 2. Check Parent Property Verification
+            if parent.verification_status != VerificationStatus.VERIFIED:
+                raise PermissionDenied("Parent property must be verified before adding services.")
+            
+            # 3. Save (Inherit Verified status if parent is verified? Or keep separate? 
+            # Usually services are auto-approved if property is verified, or manual. 
+            # Let's auto-verify services for now to streamline, as the Property is the main risk).
+            serializer.save(
+                owner=user,
+                verification_status=VerificationStatus.VERIFIED, # Auto-verify service if property is safe
+                verified_at=timezone.now(),
+                verified_by=user, # Self-verified via parent trust
+                is_corporate=True
+            )
+            return
+
+        # EXISTING LOGIC: Vehicles and other assets
+        if asset_type == AssetType.VEHICLE:
+            serializer.save(
+                owner=user,
+                verification_status=VerificationStatus.PENDING
+            )
+        else:
+            # Other assets auto-verified for now
+            serializer.save(
+                owner=user,
+                verification_status=VerificationStatus.VERIFIED,
+                verified_at=timezone.now(),
+                verified_by=user
+            )
 
     def perform_update(self, serializer):
         asset = self.get_object()
@@ -93,7 +167,7 @@ class AssetViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(verification_status=verification_status)
         
         # Filter by active/listed
-        if self.action in ['list', 'retrieve']:
+        if self.action in ['list', 'retrieve'] and owner_id != 'me':
             queryset = queryset.filter(is_active=True)
 
         is_active = self.request.query_params.get('is_active')

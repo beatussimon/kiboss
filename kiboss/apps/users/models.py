@@ -27,12 +27,14 @@ class VerificationTier:
     BASIC = 'basic'
     PREMIUM = 'premium'
     GOLD = 'gold'
+    BUSINESS = 'business'
     
     CHOICES = [
         (NONE, 'None'),
         (BASIC, 'Basic'),
         (PREMIUM, 'Premium'),
         (GOLD, 'Gold'),
+        (BUSINESS, 'Business'),
     ]
     
     # Tier thresholds
@@ -43,6 +45,7 @@ class VerificationTier:
     @classmethod
     def get_tier(cls, trust_score):
         """Get verification tier based on trust score."""
+        # Note: BUSINESS tier is manually assigned via corporate verification
         score = float(trust_score) if trust_score else 0
         if score >= cls.GOLD_THRESHOLD:
             return cls.GOLD
@@ -57,6 +60,7 @@ class VerificationTier:
         """Get badge color for verification tier."""
         colors = {
             cls.GOLD: 'gold',
+            cls.BUSINESS: 'indigo',
             cls.PREMIUM: 'blue',
             cls.BASIC: 'gray',
             cls.NONE: None
@@ -261,7 +265,7 @@ class UserProfile(models.Model):
     address = models.TextField(blank=True)
     city = models.CharField(max_length=100, blank=True)
     state = models.CharField(max_length=100, blank=True)
-    country = models.CharField(max_length=100, blank=True)
+    country = models.CharField(max_length=100, default='Tanzania', blank=True)
     postal_code = models.CharField(max_length=20, blank=True)
     latitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
     longitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
@@ -269,7 +273,7 @@ class UserProfile(models.Model):
     # Preferences
     timezone = models.CharField(max_length=50, default='UTC')
     language = models.CharField(max_length=10, default='en')
-    currency = models.CharField(max_length=3, default='USD')
+    currency = models.CharField(max_length=3, default='TZS')
     
     # Notification preferences (JSON)
     notification_settings = models.JSONField(default=dict, blank=True)
@@ -475,3 +479,95 @@ class BlacklistedToken(models.Model):
         """Check if a token is blacklisted."""
         from django.utils import timezone as tz
         return cls.objects.filter(token=token, expires_at__gt=tz.now()).exists()
+
+
+class CorporateProfile(models.Model):
+    """
+    Corporate identity for business users.
+    Linked 1:1 to User.
+    """
+    class Status(models.TextChoices):
+        PENDING = 'PENDING', 'Pending'
+        VERIFIED = 'VERIFIED', 'Verified'
+        REJECTED = 'REJECTED', 'Rejected'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name='corporate_profile'
+    )
+    
+    company_name = models.CharField(max_length=255)
+    registration_number = models.CharField(max_length=100)
+    tax_id = models.CharField(max_length=100, blank=True)
+    verification_documents = models.JSONField(default=list, blank=True)
+    
+    verification_status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'corporate_profiles'
+        verbose_name = 'Corporate Profile'
+        verbose_name_plural = 'Corporate Profiles'
+
+    def __str__(self):
+        return f"{self.company_name} ({self.verification_status})"
+
+
+class BusinessSubscription(models.Model):
+    """
+    Subscription tracking for Corporate/Business users.
+    """
+    class Plan(models.TextChoices):
+        MONTHLY = 'MONTHLY', 'Monthly'
+        YEARLY = 'YEARLY', 'Yearly'
+
+    class Status(models.TextChoices):
+        PENDING = 'PENDING', 'Pending Payment'
+        ACTIVE = 'ACTIVE', 'Active'
+        EXPIRED = 'EXPIRED', 'Expired'
+        CANCELLED = 'CANCELLED', 'Cancelled'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    profile = models.ForeignKey(
+        CorporateProfile,
+        on_delete=models.CASCADE,
+        related_name='subscriptions'
+    )
+    
+    plan_type = models.CharField(max_length=20, choices=Plan.choices)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING
+    )
+    
+    amount_paid = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=3, default='TZS')
+    
+    start_date = models.DateTimeField(auto_now_add=True)
+    end_date = models.DateTimeField()
+    
+    payment_reference = models.CharField(max_length=100, blank=True)
+    payment_proof_url = models.URLField(blank=True, help_text="Direct URL to receipt if uploaded manually")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'business_subscriptions'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.profile.company_name} - {self.plan_type} ({self.status})"
+
+    @property
+    def is_active(self):
+        return self.status == self.Status.ACTIVE and self.end_date > timezone.now()

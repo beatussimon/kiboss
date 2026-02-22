@@ -245,22 +245,22 @@ class ThreadViewSet(viewsets.ModelViewSet):
         Request body:
         {
             "target_user_id": "uuid",
-            "thread_type": "INQUIRY|BOOKING|RIDE|DISPUTE",
+            "thread_type": "INQUIRY|BOOKING|RIDE|DISPUTE|SUPPORT|DIRECT",
             "subject": "optional subject",
             "listing_id": "optional uuid (for asset)",
             "booking_id": "optional uuid",
             "ride_id": "optional uuid"
         }
-        
-        At least one context (listing_id, booking_id, or ride_id) OR thread_type must be provided.
-        
-        Validation:
-        - Sender and recipient must exist
-        - At least one context must be provided
-        - Context must exist (listing, booking, or ride)
-        - Sender must have permission to contact recipient (owner/driver)
         """
         target_user_id = request.data.get('target_user_id')
+        # Map 'admin' to an actual superuser if requested
+        if target_user_id == 'admin':
+            admin_user = User.objects.filter(is_superuser=True).first()
+            if admin_user:
+                target_user_id = str(admin_user.id)
+            else:
+                return Response({'error': 'No administrator available'}, status=404)
+
         thread_type = request.data.get('thread_type', ThreadType.INQUIRY)
         subject = request.data.get('subject', '')
         listing_id = request.data.get('listing_id')
@@ -274,8 +274,11 @@ class ThreadViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # Context is required for everything EXCEPT DIRECT or SUPPORT threads
+        is_context_optional = thread_type in [ThreadType.DIRECT, ThreadType.SUPPORT]
+        
         provided_context_ids = [ctx for ctx in [listing_id, booking_id, ride_id] if ctx]
-        if len(provided_context_ids) != 1:
+        if not is_context_optional and len(provided_context_ids) != 1:
             return Response(
                 {
                     'error': 'Exactly one context is required (listing_id, booking_id, or ride_id)',
@@ -284,6 +287,15 @@ class ThreadViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        if is_context_optional and len(provided_context_ids) > 1:
+             return Response(
+                {
+                    'error': 'Max one context allowed for direct/support messages',
+                    'code': 'INVALID_CONTEXT'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         # Validate sender is not trying to contact themselves
         if str(request.user.id) == str(target_user_id):
             return Response(
@@ -294,12 +306,6 @@ class ThreadViewSet(viewsets.ModelViewSet):
         if thread_type not in [choice[0] for choice in ThreadType.choices]:
             return Response(
                 {'error': 'Invalid thread_type', 'code': 'INVALID_THREAD_TYPE'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if thread_type in [ThreadType.DIRECT, ThreadType.SUPPORT]:
-            return Response(
-                {'error': 'Free-form messaging is not allowed', 'code': 'THREAD_TYPE_NOT_ALLOWED'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -322,18 +328,18 @@ class ThreadViewSet(viewsets.ModelViewSet):
             from kiboss.apps.assets.models import Asset
             try:
                 asset = Asset.objects.get(id=listing_id)
-                # Check if sender is trying to contact the owner
-                if str(asset.owner.id) != str(target_user_id):
-                    return Response(
-                        {'error': 'Target user is not the owner of this listing', 'code': 'INVALID_RECIPIENT'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                # Check if user is trying to contact themselves
-                if str(asset.owner.id) == str(request.user.id):
-                    return Response(
-                        {'error': 'You cannot contact yourself about your own listing', 'code': 'SELF_CONVERSATION'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
+                # Check if sender is trying to contact the owner (Skip for support)
+                if thread_type not in [ThreadType.SUPPORT, ThreadType.DIRECT]:
+                    if str(asset.owner.id) != str(target_user_id):
+                        return Response(
+                            {'error': 'Target user is not the owner of this listing', 'code': 'INVALID_RECIPIENT'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    if str(asset.owner.id) == str(request.user.id):
+                        return Response(
+                            {'error': 'You cannot contact yourself about your own listing', 'code': 'SELF_CONVERSATION'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
             except Asset.DoesNotExist:
                 return Response(
                     {'error': 'Listing not found', 'code': 'LISTING_NOT_FOUND'},
@@ -347,35 +353,20 @@ class ThreadViewSet(viewsets.ModelViewSet):
             from kiboss.apps.bookings.models import Booking
             try:
                 booking = Booking.objects.get(id=booking_id)
-                # Check if user is related to this booking (either renter or owner)
-                is_renter = str(booking.renter.id) == str(request.user.id)
-                is_owner = str(booking.asset.owner.id) == str(request.user.id)
-                
-                # Check if target user is the other party in the booking
-                if str(booking.renter.id) == str(target_user_id):
-                    # Contacting renter - only owner can do this
-                    if not is_owner:
-                        return Response(
-                            {'error': 'You can only contact the renter if you are the booking owner', 'code': 'PERMISSION_DENIED'},
-                            status=status.HTTP_403_FORBIDDEN
-                        )
-                elif str(booking.asset.owner.id) == str(target_user_id):
-                    # Contacting owner - only renter can do this
-                    if not is_renter:
-                        return Response(
-                            {'error': 'You can only contact the owner if you are the renter', 'code': 'PERMISSION_DENIED'},
-                            status=status.HTTP_403_FORBIDDEN
-                        )
-                else:
-                    return Response(
-                        {'error': 'Target user is not a party to this booking', 'code': 'INVALID_RECIPIENT'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
+                # Check if user is related to this booking (Skip for support)
+                if thread_type not in [ThreadType.SUPPORT]:
+                    is_renter = str(booking.renter.id) == str(request.user.id)
+                    is_owner = str(booking.asset.owner.id) == str(request.user.id)
+                    if str(booking.renter.id) == str(target_user_id):
+                        if not is_owner:
+                            return Response({'error': 'Permission denied', 'code': 'PERMISSION_DENIED'}, status=403)
+                    elif str(booking.asset.owner.id) == str(target_user_id):
+                        if not is_renter:
+                            return Response({'error': 'Permission denied', 'code': 'PERMISSION_DENIED'}, status=403)
+                    else:
+                        return Response({'error': 'Invalid recipient', 'code': 'INVALID_RECIPIENT'}, status=400)
             except Booking.DoesNotExist:
-                return Response(
-                    {'error': 'Booking not found', 'code': 'BOOKING_NOT_FOUND'},
-                    status=status.HTTP_404_NOT_FOUND
-                )
+                return Response({'error': 'Booking not found', 'code': 'BOOKING_NOT_FOUND'}, status=404)
             context_type = ContextType.BOOKING
             context_id = booking.id
         
@@ -384,80 +375,67 @@ class ThreadViewSet(viewsets.ModelViewSet):
             from kiboss.apps.rides.models import Ride
             try:
                 ride = Ride.objects.get(id=ride_id)
-                # Check if user is trying to contact the driver
-                if str(ride.driver.id) == str(target_user_id):
-                    # Contacting driver - must not be the driver themselves
-                    if str(ride.driver.id) == str(request.user.id):
-                        return Response(
-                            {'error': 'You cannot contact yourself about your own ride', 'code': 'SELF_CONVERSATION'},
-                            status=status.HTTP_400_BAD_REQUEST
-                        )
-                else:
-                    return Response(
-                        {'error': 'Target user is not the driver of this ride', 'code': 'INVALID_RECIPIENT'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
+                if thread_type not in [ThreadType.SUPPORT]:
+                    if str(ride.driver.id) == str(target_user_id):
+                        if str(ride.driver.id) == str(request.user.id):
+                            return Response({'error': 'Self conversation', 'code': 'SELF_CONVERSATION'}, status=400)
+                    else:
+                        return Response({'error': 'Invalid recipient', 'code': 'INVALID_RECIPIENT'}, status=400)
             except Ride.DoesNotExist:
-                return Response(
-                    {'error': 'Ride not found', 'code': 'RIDE_NOT_FOUND'},
-                    status=status.HTTP_404_NOT_FOUND
-                )
+                return Response({'error': 'Ride not found', 'code': 'RIDE_NOT_FOUND'}, status=404)
             context_type = ContextType.RIDE
             context_id = ride.id
         
-        if not context_type or not context_id:
+        if not is_context_optional and (not context_type or not context_id):
             return Response(
                 {'error': 'Context is required', 'code': 'MISSING_CONTEXT'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         # Enforce context/thread type consistency.
-        expected_thread_type = {
-            ContextType.ASSET: ThreadType.INQUIRY,
-            ContextType.BOOKING: ThreadType.BOOKING,
-            ContextType.RIDE: ThreadType.RIDE,
-        }[context_type]
-        if thread_type != expected_thread_type and thread_type != ThreadType.DISPUTE:
-            return Response(
-                {'error': f'{context_type} context requires thread type {expected_thread_type}', 'code': 'THREAD_CONTEXT_MISMATCH'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        if context_type:
+            expected_thread_type = {
+                ContextType.ASSET: ThreadType.INQUIRY,
+                ContextType.BOOKING: ThreadType.BOOKING,
+                ContextType.RIDE: ThreadType.RIDE,
+            }[context_type]
+            if thread_type != expected_thread_type and thread_type not in [ThreadType.DISPUTE, ThreadType.SUPPORT]:
+                return Response(
+                    {'error': f'{context_type} context requires thread type {expected_thread_type}', 'code': 'THREAD_CONTEXT_MISMATCH'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
         with transaction.atomic():
-            # 1. Look for existing threads between these two users for this specific context
-            # We filter for threads that have BOTH the request user and target user
+            # 1. Look for existing threads
+            filter_kwargs = {
+                'thread_type': thread_type,
+                'participants': request.user,
+            }
+            if context_type:
+                filter_kwargs['context_type'] = context_type
+                filter_kwargs['context_id'] = context_id
+
             existing_threads = (
-                Thread.objects.filter(
-                    thread_type=thread_type,
-                    context_type=context_type,
-                    context_id=context_id,
-                    participants=request.user,
-                )
+                Thread.objects.filter(**filter_kwargs)
                 .filter(participants=target_user)
                 .distinct()
                 .order_by('-updated_at')
             )
             
             if existing_threads.exists():
-                # If multiple exist (due to past bugs), we pick the latest one
                 thread = existing_threads.first()
-                
-                # Cleanup fix: ensure the context IDs match (should already match due to filter)
-                # But we ensure related fields are synced
                 save_required = False
-                if thread.booking_id != getattr(booking, 'id', None):
+                if booking and thread.booking != booking:
                     thread.booking = booking
                     save_required = True
-                if thread.ride_id != getattr(ride, 'id', None):
+                if ride and thread.ride != ride:
                     thread.ride = ride
                     save_required = True
-                
                 if save_required:
                     thread.save(update_fields=['booking', 'ride', 'updated_at'])
-                
                 return Response(ThreadSerializer(thread, context={'request': request}).data)
 
-            # 2. Create new contextual thread only if none found
+            # 2. Create new contextual thread
             if not subject:
                 if context_type == ContextType.ASSET and asset is not None:
                     subject = f'Inquiry about {asset.name}'

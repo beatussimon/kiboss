@@ -38,6 +38,7 @@ def api_root(request):
                 'social': '/api/v1/social/',
                 'rbac': '/api/v1/rbac/',
                 'audits': '/api/v1/audits/',
+                'tasks': '/api/v1/tasks/',
             },
         },
         json_dumps_params={'separators': (',', ':')},
@@ -72,6 +73,7 @@ urlpatterns = [
     path('api/v1/rbac/', include('kiboss.apps.rbac.urls')),
     path('api/v1/audits/', include('kiboss.apps.audits.urls')),
     path('api/v1/common/', include('kiboss.apps.common.urls')),
+    path('api/v1/tasks/', include('kiboss.apps.tasks.urls')),
 ]
 
 if settings.DEBUG:

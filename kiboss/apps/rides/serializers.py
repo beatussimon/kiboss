@@ -35,6 +35,7 @@ class RideStopSerializer(serializers.ModelSerializer):
 
 class SeatBookingSerializer(serializers.ModelSerializer):
     """Serializer for SeatBooking model."""
+    passenger = UserSerializer(read_only=True)
     pickup_stop_details = RideStopSerializer(source='pickup_stop', read_only=True)
     dropoff_stop_details = RideStopSerializer(source='dropoff_stop', read_only=True)
     

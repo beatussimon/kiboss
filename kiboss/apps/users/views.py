@@ -8,8 +8,114 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
-from .models import User, UserProfile
-from .serializers import UserWithProfileSerializer, UserProfileSerializer, PublicUserSerializer
+from .models import User, UserProfile, CorporateProfile, BusinessSubscription
+from .serializers import UserWithProfileSerializer, UserProfileSerializer, PublicUserSerializer, UserSerializer
+from kiboss.apps.tasks.models import StaffTask, TaskType, TaskStatus, TaskPriority
+from kiboss.apps.core.models import SystemConfiguration
+from django.contrib.contenttypes.models import ContentType
+from django.utils import timezone
+from datetime import timedelta
+
+
+class BusinessConfigView(APIView):
+    """
+    Fetch global business settings (pricing, terms).
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        config = SystemConfiguration.get_config()
+        return Response({
+            'monthly_price': float(config.business_subscription_monthly),
+            'yearly_price': float(config.business_subscription_yearly),
+            'registration_fee': float(config.business_registration_fee),
+            'terms': config.business_terms_conditions
+        })
+
+
+class CorporateRegistrationView(APIView):
+    """
+    API endpoint for corporate account registration.
+    Supports plan selection, payment reference, and document uploads.
+    """
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    
+    def post(self, request):
+        user = request.user
+        
+        # Check if already registered
+        if hasattr(user, 'corporate_profile'):
+            return Response(
+                {'error': 'Corporate profile already exists'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        company_name = request.data.get('company_name')
+        registration_number = request.data.get('registration_number')
+        country = request.data.get('country', 'Tanzania')
+        plan_type = request.data.get('plan_type', 'MONTHLY') # 'MONTHLY' or 'YEARLY'
+        payment_reference = request.data.get('payment_reference', '')
+        
+        if not company_name or not registration_number:
+            return Response(
+                {'error': 'Company name and registration number are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Handle file uploads
+        files = request.FILES.getlist('documents')
+        uploaded_docs = []
+        for file in files:
+            # In a real app, we'd save to a proper storage and keep the URL
+            # For now, we'll use the file name as a placeholder in the JSONField
+            # but ideally these should be saved to a FileField or dedicated model
+            uploaded_docs.append({
+                'name': file.name,
+                'size': file.size,
+                'type': file.content_type,
+                'uploaded_at': timezone.now().isoformat()
+            })
+
+        with transaction.atomic():
+            # Create profile
+            profile = CorporateProfile.objects.create(
+                user=user,
+                company_name=company_name,
+                registration_number=registration_number,
+                tax_id=request.data.get('tax_id', ''),
+                verification_status='PENDING',
+                verification_documents=uploaded_docs
+            )
+            
+            # Save country to user profile if it's there
+            user_profile, _ = UserProfile.objects.get_or_create(user=user)
+            user_profile.country = country
+            user_profile.save()
+            
+            # Create Subscription record
+            config = SystemConfiguration.get_config()
+            price = config.business_subscription_monthly if plan_type == 'MONTHLY' else config.business_subscription_yearly
+            duration_days = 30 if plan_type == 'MONTHLY' else 365
+            
+            BusinessSubscription.objects.create(
+                profile=profile,
+                plan_type=plan_type,
+                status='PENDING',
+                amount_paid=price,
+                end_date=timezone.now() + timedelta(days=duration_days),
+                payment_reference=payment_reference
+            )
+            
+            # Create Verification Task using service
+            from kiboss.apps.common.services import VerificationService
+            VerificationService.request_verification(profile, user, notes=f"Plan: {plan_type}. Ref: {payment_reference}")
+        
+        return Response({
+            'status': 'success',
+            'message': 'Corporate application and subscription submitted successfully',
+            'profile_id': str(profile.id)
+        }, status=status.HTTP_201_CREATED)
 
 
 class CurrentUserView(APIView):
