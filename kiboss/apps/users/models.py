@@ -15,6 +15,8 @@ from django.db import models
 from django.conf import settings
 from django.utils import timezone
 
+from kiboss.apps.common.validators import validate_file_size, validate_image_extension, validate_document_extension
+
 
 # Default values using Decimal
 DEFAULT_TRUST_SCORE = Decimal('50.00')
@@ -257,7 +259,7 @@ class UserProfile(models.Model):
     
     # Personal information
     phone = models.CharField(max_length=20, blank=True, null=True)
-    avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
+    avatar = models.ImageField(upload_to='avatars/', blank=True, null=True, validators=[validate_file_size, validate_image_extension])
     bio = models.TextField(max_length=500, blank=True)
     date_of_birth = models.DateField(blank=True, null=True)
     
@@ -285,7 +287,7 @@ class UserProfile(models.Model):
     total_rides_as_passenger = models.IntegerField(default=0)
     
     # Verification documents
-    identity_document = models.FileField(upload_to='identity/', blank=True, null=True)
+    identity_document = models.FileField(upload_to='identity/', blank=True, null=True, validators=[validate_file_size, validate_document_extension])
     
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)

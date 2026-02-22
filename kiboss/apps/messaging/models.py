@@ -18,6 +18,8 @@ from django.db import models
 from django.conf import settings
 from django.utils import timezone
 
+from kiboss.apps.common.validators import validate_file_size, validate_attachment_extension
+
 
 class ThreadType(models.TextChoices):
     """Thread type enumeration."""
@@ -269,7 +271,7 @@ class MessageAttachment(models.Model):
         related_name='attachments'
     )
     
-    file = models.FileField(upload_to='message_attachments/%Y/%m/')
+    file = models.FileField(upload_to='message_attachments/%Y/%m/', validators=[validate_file_size, validate_attachment_extension])
     file_type = models.CharField(max_length=20, choices=ATTACHMENT_TYPES)
     file_name = models.CharField(max_length=255)
     file_size = models.PositiveIntegerField()  # bytes

@@ -142,7 +142,7 @@ class LocationService:
             text_query_rides,
             status__in=[RideStatus.OPEN, RideStatus.SCHEDULED],
             departure_time__gte=timezone.now()
-        ).order_by('-departure_time')[:20]
+        ).select_related('driver', 'vehicle_asset').prefetch_related('stops').order_by('-departure_time')[:20]
         
         text_query_assets = Q(name__icontains=query) | Q(description__icontains=query) | \
                            Q(asset_type__icontains=query)

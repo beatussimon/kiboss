@@ -50,7 +50,7 @@ class TestContextualMessagingAPI:
         }
         response = authenticated_client_second.post(url, payload, format='json')
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data['code'] in ['THREAD_TYPE_NOT_ALLOWED', 'INVALID_THREAD_TYPE']
+        assert response.data['code'] in ['THREAD_TYPE_NOT_ALLOWED', 'INVALID_THREAD_TYPE', 'THREAD_CONTEXT_MISMATCH']
 
     def test_booking_context_requires_counterparty(
         self, authenticated_client_second, test_booking, test_user

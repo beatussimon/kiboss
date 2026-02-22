@@ -25,7 +25,7 @@ class TaskWorkflowTests(APITestCase):
             last_name='Verifier'
         )
         # Assign Verifier role
-        UserRole.objects.create(user=self.verifier, role=Role.VERIFIER)
+        UserRole.objects.create(user=self.verifier, role='CAR_VERIFIER')
         
         self.client.force_authenticate(user=self.user)
 
@@ -52,7 +52,7 @@ class TaskWorkflowTests(APITestCase):
         # Check Task created
         task = StaffTask.objects.get(object_id=asset.id)
         self.assertEqual(task.task_type, TaskType.VE_VERIFICATION if hasattr(TaskType, 'VE_VERIFICATION') else TaskType.VEHICLE_VERIFICATION)
-        self.assertEqual(task.assigned_role, 'VERIFIER')
+        self.assertEqual(task.assigned_role, 'CAR_VERIFIER')
         self.assertEqual(task.status, TaskStatus.PENDING)
 
     def test_verifier_can_approve_task(self):
@@ -69,7 +69,7 @@ class TaskWorkflowTests(APITestCase):
             task_type=TaskType.VEHICLE_VERIFICATION,
             content_type=ContentType.objects.get_for_model(Asset),
             object_id=asset.id,
-            assigned_role='VERIFIER',
+            assigned_role='CAR_VERIFIER',
             status=TaskStatus.PENDING
         )
         

@@ -5,7 +5,7 @@ Views for Users API
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
 from .models import User, UserProfile, CorporateProfile, BusinessSubscription
@@ -214,7 +214,7 @@ class RegisterView(APIView):
 
     POST /api/v1/users/register/
     """
-    permission_classes = []
+    permission_classes = [AllowAny]
 
     def post(self, request):
         email = request.data.get('email')
@@ -251,5 +251,45 @@ class RegisterView(APIView):
         from .models import TrustScore
         TrustScore.objects.get_or_create(user=user)
         
+        # Trigger email verification
+        from kiboss.apps.users.verification_models import VerificationRequest, VerificationType
+        verification = VerificationRequest.objects.create(
+            user=user,
+            verification_type=VerificationType.EMAIL,
+            email=user.email
+        )
+        verification.generate_code()
+        # TODO: A Celery task would dispatch the email here
+        
         serializer = UserWithProfileSerializer(user)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class VerifyEmailView(APIView):
+    """
+    API endpoint for verifying user's email address using a six digit code.
+    
+    POST /api/v1/users/verify-email/
+    """
+    from rest_framework.permissions import IsAuthenticated
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        code = request.data.get('code')
+        if not code:
+            return Response({'error': 'Verification code is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        from kiboss.apps.users.verification_models import VerificationRequest, VerificationType, VerificationStatus
+        verification = VerificationRequest.objects.filter(
+            user=request.user,
+            verification_type=VerificationType.EMAIL,
+            status=VerificationStatus.PENDING
+        ).last()
+
+        if not verification:
+            return Response({'error': 'No pending email verification found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        success, message = verification.verify_code(code)
+        if success:
+            return Response({'message': message}, status=status.HTTP_200_OK)
+        return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)

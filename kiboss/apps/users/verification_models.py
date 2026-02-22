@@ -14,6 +14,8 @@ from django.db import models
 from django.conf import settings
 from django.utils import timezone
 
+from kiboss.apps.common.validators import validate_file_size, validate_image_extension
+
 
 class VerificationType(models.TextChoices):
     """Types of verification."""
@@ -78,18 +80,21 @@ class VerificationRequest(models.Model):
     # Document images
     document_front = models.ImageField(
         upload_to='verification/%Y/%m/',
+        validators=[validate_file_size, validate_image_extension],
         blank=True,
         null=True,
         help_text="Front of ID document"
     )
     document_back = models.ImageField(
         upload_to='verification/%Y/%m/',
+        validators=[validate_file_size, validate_image_extension],
         blank=True,
         null=True,
         help_text="Back of ID document"
     )
     selfie = models.ImageField(
         upload_to='verification/%Y/%m/',
+        validators=[validate_file_size, validate_image_extension],
         blank=True,
         null=True,
         help_text="Selfie with ID document"
@@ -104,6 +109,7 @@ class VerificationRequest(models.Model):
     country = models.CharField(max_length=100, blank=True)
     proof_of_address = models.ImageField(
         upload_to='verification/%Y/%m/',
+        validators=[validate_file_size, validate_image_extension],
         blank=True,
         null=True,
         help_text="Utility bill or bank statement"
@@ -233,7 +239,7 @@ class VerificationDocument(models.Model):
     )
     
     document_type = models.CharField(max_length=50)
-    document = models.ImageField(upload_to='verification/%Y/%m/')
+    document = models.ImageField(upload_to='verification/%Y/%m/', validators=[validate_file_size, validate_image_extension])
     description = models.CharField(max_length=255, blank=True)
     
     created_at = models.DateTimeField(auto_now_add=True)

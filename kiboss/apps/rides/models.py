@@ -18,6 +18,8 @@ from django.db import models
 from django.conf import settings
 from django.utils import timezone
 
+from kiboss.apps.common.validators import validate_file_size, validate_image_extension
+
 
 class RideStatus(models.TextChoices):
     """Ride status enumeration."""
@@ -171,7 +173,7 @@ class RidePhoto(models.Model):
         related_name='photos'
     )
     
-    image = models.ImageField(upload_to='ride_photos/%Y/%m/')
+    image = models.ImageField(upload_to='ride_photos/%Y/%m/', validators=[validate_file_size, validate_image_extension])
     caption = models.CharField(max_length=255, blank=True)
     order = models.PositiveIntegerField(default=0)
     is_primary = models.BooleanField(default=False)

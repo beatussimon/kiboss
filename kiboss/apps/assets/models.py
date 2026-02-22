@@ -22,6 +22,8 @@ from django.db import models
 from django.conf import settings
 from django.core.validators import MinValueValidator, MaxValueValidator
 
+from kiboss.apps.common.validators import validate_file_size, validate_image_extension, validate_document_extension
+
 
 class AssetType(models.TextChoices):
     """Enumeration of supported asset types."""
@@ -151,6 +153,11 @@ class Asset(models.Model):
     def get_property(self, key, default=None):
         """Get a property value from the JSON field."""
         return self.properties.get(key, default)
+        
+    def set_property(self, key, value):
+        """Set a property value in the JSON field."""
+        self.properties[key] = value
+        self.save(update_fields=['properties'])
     
     def clean(self):
         """
@@ -226,7 +233,7 @@ class AssetPhoto(models.Model):
         related_name='photos'
     )
     
-    image = models.ImageField(upload_to='asset_photos/%Y/%m/')
+    image = models.ImageField(upload_to='asset_photos/%Y/%m/', validators=[validate_file_size, validate_image_extension])
     caption = models.CharField(max_length=255, blank=True)
     order = models.PositiveIntegerField(default=0)
     is_primary = models.BooleanField(default=False)
@@ -262,7 +269,7 @@ class AssetDocument(models.Model):
     )
     
     document_type = models.CharField(max_length=50, choices=DOCUMENT_TYPES)
-    file = models.FileField(upload_to='asset_documents/%Y/%m/')
+    file = models.FileField(upload_to='asset_documents/%Y/%m/', validators=[validate_file_size, validate_document_extension])
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     
