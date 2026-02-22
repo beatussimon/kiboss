@@ -573,3 +573,11 @@ class BusinessSubscription(models.Model):
     @property
     def is_active(self):
         return self.status == self.Status.ACTIVE and self.end_date > timezone.now()
+
+
+# Import verification models at the end to avoid circular imports 
+# and ensure they are registered with the app.
+from .verification_models import (
+    VerificationType, VerificationStatus, VerificationRequest,
+    VerificationDocument, VerificationLog
+)

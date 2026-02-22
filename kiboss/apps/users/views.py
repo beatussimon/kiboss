@@ -346,11 +346,6 @@ class RegisterView(APIView):
             last_name=last_name,
         )
         
-        # Create profile and trust score
-        UserProfile.objects.get_or_create(user=user)
-        from .models import TrustScore
-        TrustScore.objects.get_or_create(user=user)
-        
         # Trigger email verification
         from kiboss.apps.users.verification_models import VerificationRequest, VerificationType
         verification = VerificationRequest.objects.create(
