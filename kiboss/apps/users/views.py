@@ -15,6 +15,7 @@ from kiboss.apps.core.models import SystemConfiguration
 from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 from datetime import timedelta
+from django.db import transaction
 
 
 class BusinessConfigView(APIView):
@@ -66,14 +67,29 @@ class CorporateRegistrationView(APIView):
         # Handle file uploads
         files = request.FILES.getlist('documents')
         uploaded_docs = []
+        
+        from django.core.files.storage import default_storage
+        import os
+        import uuid
+        from kiboss.apps.common.validators import validate_file_size, validate_document_extension
+        
         for file in files:
-            # In a real app, we'd save to a proper storage and keep the URL
-            # For now, we'll use the file name as a placeholder in the JSONField
-            # but ideally these should be saved to a FileField or dedicated model
+            # Validate
+            validate_file_size(file)
+            validate_document_extension(file)
+            
+            # Save physical file to storage
+            ext = os.path.splitext(file.name)[1]
+            filename = f"corporate_docs/{user.id}_{uuid.uuid4().hex}{ext}"
+            saved_path = default_storage.save(filename, file)
+            file_url = default_storage.url(saved_path)
+            
             uploaded_docs.append({
                 'name': file.name,
                 'size': file.size,
                 'type': file.content_type,
+                'path': saved_path,
+                'url': file_url,
                 'uploaded_at': timezone.now().isoformat()
             })
 
@@ -116,6 +132,90 @@ class CorporateRegistrationView(APIView):
             'message': 'Corporate application and subscription submitted successfully',
             'profile_id': str(profile.id)
         }, status=status.HTTP_201_CREATED)
+
+    def patch(self, request):
+        user = request.user
+        
+        try:
+            profile = user.corporate_profile
+        except CorporateProfile.DoesNotExist:
+            return Response(
+                {'error': 'No existing corporate profile found for this user.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+            
+        company_name = request.data.get('company_name')
+        registration_number = request.data.get('registration_number')
+        tax_id = request.data.get('tax_id')
+        
+        if company_name: profile.company_name = company_name
+        if registration_number: profile.registration_number = registration_number
+        if tax_id is not None: profile.tax_id = tax_id
+        
+        # Handle file uploads if new documents are provided
+        files = request.FILES.getlist('documents')
+        if files:
+            from django.core.files.storage import default_storage
+            import os
+            import uuid
+            from kiboss.apps.common.validators import validate_file_size, validate_document_extension
+            
+            existing_docs = profile.verification_documents or []
+            
+            for file in files:
+                validate_file_size(file)
+                validate_document_extension(file)
+                
+                ext = os.path.splitext(file.name)[1]
+                filename = f"corporate_docs/{user.id}_{uuid.uuid4().hex}{ext}"
+                saved_path = default_storage.save(filename, file)
+                file_url = default_storage.url(saved_path)
+                
+                existing_docs.append({
+                    'name': file.name,
+                    'size': file.size,
+                    'type': file.content_type,
+                    'path': saved_path,
+                    'url': file_url,
+                    'uploaded_at': timezone.now().isoformat()
+                })
+            
+            profile.verification_documents = existing_docs
+            
+        with transaction.atomic():
+            # Reset verification status
+            profile.verification_status = 'PENDING'
+            profile.save()
+            
+            # Update subscription if a new payment reference was provided
+            payment_reference = request.data.get('payment_reference')
+            plan_type = request.data.get('plan_type')
+            notes = "Resubmission."
+            
+            if payment_reference and plan_type:
+                config = SystemConfiguration.get_config()
+                price = config.business_subscription_monthly if plan_type == 'MONTHLY' else config.business_subscription_yearly
+                duration_days = 30 if plan_type == 'MONTHLY' else 365
+                
+                BusinessSubscription.objects.create(
+                    profile=profile,
+                    plan_type=plan_type,
+                    status='PENDING',
+                    amount_paid=price,
+                    end_date=timezone.now() + timedelta(days=duration_days),
+                    payment_reference=payment_reference
+                )
+                notes = f"Plan: {plan_type}. Ref: {payment_reference}"
+                
+            # Create a new verification task
+            from kiboss.apps.common.services import VerificationService
+            VerificationService.request_verification(profile, user, notes=notes)
+            
+        return Response({
+            'status': 'success',
+            'message': 'Corporate profile updated and resubmitted for verification',
+            'profile_id': str(profile.id)
+        }, status=status.HTTP_200_OK)
 
 
 class CurrentUserView(APIView):

@@ -189,6 +189,8 @@ class RideListSerializer(serializers.ModelSerializer):
     driver = UserSerializer(read_only=True)
     driver_email = serializers.EmailField(source='driver.email', read_only=True)
     available_seats = serializers.SerializerMethodField()
+    photos = RidePhotoSerializer(many=True, read_only=True)
+    vehicle_asset = AssetSerializer(read_only=True)
     
     class Meta:
         model = Ride
@@ -197,7 +199,7 @@ class RideListSerializer(serializers.ModelSerializer):
             'origin', 'destination', 'route_name',
             'departure_time', 'total_seats',
             'seat_price', 'currency', 'available_seats', 'confirmed_seats',
-            'vehicle_description'
+            'vehicle_description', 'photos', 'vehicle_asset'
         ]
         read_only_fields = fields
     

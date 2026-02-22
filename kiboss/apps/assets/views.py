@@ -193,6 +193,17 @@ class AssetViewSet(viewsets.ModelViewSet):
         asset.verified_at = timezone.now()
         asset.verified_by = request.user
         asset.save()
+        
+        from kiboss.apps.notifications.services import NotificationService
+        from kiboss.apps.notifications.models import NotificationCategory
+        NotificationService.create_notification(
+            user=asset.owner,
+            category=NotificationCategory.SYSTEM,
+            notification_type='ASSET_VERIFIED',
+            title="Asset Verified",
+            message=f"Your asset '{asset.name}' has been verified and is now active."
+        )
+        
         serializer = self.get_serializer(asset)
         return Response(serializer.data)
     
@@ -202,6 +213,17 @@ class AssetViewSet(viewsets.ModelViewSet):
         asset = self.get_object()
         asset.is_active = False
         asset.save()
+        
+        from kiboss.apps.notifications.services import NotificationService
+        from kiboss.apps.notifications.models import NotificationCategory
+        NotificationService.create_notification(
+            user=asset.owner,
+            category=NotificationCategory.SYSTEM,
+            notification_type='ASSET_DEACTIVATED',
+            title="Asset Deactivated",
+            message=f"Your asset '{asset.name}' has been deactivated by an administrator."
+        )
+        
         serializer = self.get_serializer(asset)
         return Response(serializer.data)
     
