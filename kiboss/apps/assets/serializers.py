@@ -111,6 +111,7 @@ class AssetListSerializer(serializers.ModelSerializer):
     )
     is_verified = serializers.SerializerMethodField()
     photos = AssetPhotoSerializer(many=True, read_only=True)
+    pricing_rules = AssetPricingSerializer(many=True, read_only=True)
     
     class Meta:
         model = Asset
@@ -121,7 +122,7 @@ class AssetListSerializer(serializers.ModelSerializer):
             'verification_status', 'verification_status_display', 'is_verified',
             'is_active', 'is_listed',
             'average_rating', 'total_reviews',
-            'properties', 'photos',
+            'properties', 'photos', 'pricing_rules',
             'created_at', 'updated_at'
         ]
         read_only_fields = fields

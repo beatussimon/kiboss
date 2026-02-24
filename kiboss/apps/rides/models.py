@@ -94,7 +94,7 @@ class Ride(models.Model):
     # Seat capacity
     total_seats = models.PositiveIntegerField(default=4)
     seat_price = models.DecimalField(max_digits=10, decimal_places=2)
-    currency = models.CharField(max_length=3, default='USD')
+    currency = models.CharField(max_length=3, default='TZS')
     
     # Seat management
     reserved_seats = models.PositiveIntegerField(default=0)
@@ -282,7 +282,7 @@ class SeatBooking(models.Model):
     
     # Price
     price = models.DecimalField(max_digits=10, decimal_places=2)
-    currency = models.CharField(max_length=3, default='USD')
+    currency = models.CharField(max_length=3, default='TZS')
     
     # Payment
     payment = models.OneToOneField(
@@ -420,7 +420,7 @@ class RideSchedule(models.Model):
     # Seat capacity and pricing
     total_seats = models.PositiveIntegerField(default=4)
     seat_price = models.DecimalField(max_digits=10, decimal_places=2)
-    currency = models.CharField(max_length=3, default='USD')
+    currency = models.CharField(max_length=3, default='TZS')
     
     # Validity period
     valid_from = models.DateField()

@@ -78,7 +78,7 @@ class Payment(models.Model):
     
     # Payment details
     amount = models.DecimalField(max_digits=10, decimal_places=2)
-    currency = models.CharField(max_length=3, default='USD')
+    currency = models.CharField(max_length=3, default='TZS')
     
     # Method
     payment_method = models.CharField(

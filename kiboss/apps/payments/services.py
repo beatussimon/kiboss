@@ -66,7 +66,7 @@ class ZenopayService:
     @staticmethod
     def create_payment_intent(
         amount: Decimal,
-        currency: str = 'USD',
+        currency: str = 'TZS',
         description: str = '',
         metadata: Optional[Dict[str, Any]] = None,
         customer_email: Optional[str] = None,
@@ -88,7 +88,7 @@ class ZenopayService:
             {
                 'id': 'pi_xxx',
                 'amount': 100.00,
-                'currency': 'USD',
+                'currency': 'TZS',
                 'status': 'requires_payment_method',
                 'client_secret': 'pi_xxx_secret_xxx',
                 'created_at': '2024-01-01T00:00:00Z'
@@ -141,7 +141,7 @@ class ZenopayService:
             'id': intent_id,
             'status': 'succeeded',
             'amount': 0,  # Would be populated from intent
-            'currency': 'USD',
+            'currency': 'TZS',
             'payment_method': payment_method_id,
             'confirmed_at': timezone.now().isoformat(),
         }
@@ -204,7 +204,7 @@ class ZenopayService:
     def create_transfer(
         amount: Decimal,
         destination: str,
-        currency: str = 'USD',
+        currency: str = 'TZS',
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
