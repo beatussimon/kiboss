@@ -51,9 +51,15 @@ class VerificationService:
             entity.verification_status = 'PENDING'
             entity.save()
             
-            task_type = TaskType.CORPORATE_VERIFICATION
-            assigned_role = 'BUSINESS_VERIFIER'
-            title = f"Verify Business: {entity.company_name}"
+            if entity.business_category == 'RIDE':
+                task_type = TaskType.CORPORATE_RIDE_VERIFICATION
+                assigned_role = 'RIDE_BUSINESS_VERIFIER'
+                title = f"Verify Ride Business: {entity.company_name}"
+            else:
+                task_type = TaskType.CORPORATE_ASSET_VERIFICATION
+                assigned_role = 'ASSET_BUSINESS_VERIFIER'
+                title = f"Verify Asset Business: {entity.company_name}"
+                
             description = f"Corporate verification request from {user.email}. {notes}"
             
         elif isinstance(entity, User):

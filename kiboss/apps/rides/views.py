@@ -131,6 +131,11 @@ class RideViewSet(viewsets.ModelViewSet):
         """
         user = self.request.user
         
+        # Check Business Isolation
+        if hasattr(user, 'corporate_profile') and user.corporate_profile.business_category == 'ASSET':
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Asset businesses cannot offer rides. Register an individual or Ride Business account.")
+        
         # Check if user has at least one verified vehicle asset
         has_verified_vehicle = Asset.objects.filter(
             owner=user,
@@ -392,6 +397,89 @@ class RideViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
 
+    @action(detail=True, methods=['post'])
+    def bulk_book_seats(self, request, pk=None):
+        """Book multiple seats on this ride for Business Rides."""
+        ride = self.get_object()
+        
+        # Prevent self-booking
+        if ride.driver == request.user:
+            return Response(
+                {'error': 'You cannot book seats on your own ride'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        quantity = int(request.data.get('quantity', 1))
+        if quantity <= 0:
+            return Response({'error': 'Quantity must be at least 1'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        pickup_stop_id = request.data.get('pickup_stop_id')
+        dropoff_stop_id = request.data.get('dropoff_stop_id')
+        passenger_notes = request.data.get('passenger_notes', '')
+        luggage_count = request.data.get('luggage_count', 0)
+        
+        from kiboss.apps.rides.models import SeatBooking, SeatBookingStatus
+        from kiboss.apps.common.locking import get_lock_manager, LockAcquisitionError
+        
+        lock_key = f"lock:ride:{ride.id}:bulk_book"
+        lock_manager = get_lock_manager()
+        
+        try:
+            with lock_manager.lock(lock_key, ttl=30, max_retries=3):
+                # Check ride is still available
+                if ride.is_full() or ride.get_available_seats() < quantity:
+                    return Response(
+                        {'error': f'Not enough available seats. Only {ride.get_available_seats()} left.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                    
+                # Find available seats
+                existing_bookings = SeatBooking.objects.filter(
+                    ride=ride,
+                    status__in=[SeatBookingStatus.RESERVED, SeatBookingStatus.CONFIRMED]
+                ).values_list('seat_number', flat=True)
+                
+                available_seat_numbers = [i for i in range(1, ride.total_seats + 1) if i not in existing_bookings]
+                
+                if len(available_seat_numbers) < quantity:
+                    return Response(
+                        {'error': 'Not enough available seats simultaneously.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                    
+                seats_to_book = available_seat_numbers[:quantity]
+                
+                # Create the bookings
+                created_bookings = []
+                with transaction.atomic():
+                    for seat_number in seats_to_book:
+                        booking = SeatBooking.objects.create(
+                            ride=ride,
+                            passenger=request.user,
+                            seat_number=seat_number,
+                            status=SeatBookingStatus.RESERVED,
+                            price=ride.seat_price,
+                            currency=ride.currency,
+                            pickup_stop_id=pickup_stop_id,
+                            dropoff_stop_id=dropoff_stop_id,
+                            passenger_notes=passenger_notes,
+                            luggage_count=luggage_count
+                        )
+                        created_bookings.append(booking)
+                    
+                    # Update ride seat counts
+                    ride.reserved_seats += quantity
+                    ride.save(update_fields=['reserved_seats', 'updated_at'])
+                
+                response_serializer = SeatBookingSerializer(created_bookings, many=True)
+                return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+                
+        except LockAcquisitionError:
+            return Response(
+                {'error': 'Unable to process booking. Please try again.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+
 
 class RideStopViewSet(viewsets.ModelViewSet):
     """
@@ -580,3 +668,98 @@ class RideScheduleViewSet(viewsets.ModelViewSet):
         rides = schedule.generate_rides(days_ahead=days_ahead)
         serializer = RideSerializer(rides, many=True)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+from kiboss.apps.rides.models import CargoBooking
+
+class CargoBookingViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing cargo bookings.
+    """
+    queryset = CargoBooking.objects.select_related('ride', 'sender', 'pickup_stop', 'dropoff_stop').order_by('-created_at')
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_serializer_class(self):
+        from kiboss.apps.rides.serializers import CargoBookingSerializer, CargoBookingCreateSerializer
+        if self.action == 'create':
+            return CargoBookingCreateSerializer
+        return CargoBookingSerializer
+        
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        ride = serializer.validated_data['ride']
+        weight = serializer.validated_data['weight']
+        
+        if ride.driver == request.user:
+            return Response(
+                {'error': 'You cannot book cargo on your own ride'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        from kiboss.apps.common.locking import get_lock_manager, LockAcquisitionError
+        lock_key = f"lock:ride:{ride.id}:cargo"
+        lock_manager = get_lock_manager()
+        
+        try:
+            with lock_manager.lock(lock_key, ttl=30, max_retries=3):
+                # Re-validate
+                if ride.get_available_cargo() < weight:
+                    return Response(
+                        {'error': f'Not enough available cargo capacity. Only {ride.get_available_cargo()} kg available.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                    
+                with transaction.atomic():
+                    from kiboss.apps.rides.models import CargoBooking, CargoBookingStatus
+                    booking = CargoBooking.objects.create(
+                        ride=ride,
+                        sender=request.user,
+                        weight=weight,
+                        status=CargoBookingStatus.RESERVED,
+                        price=ride.cargo_price * weight, # simple calculation
+                        currency=ride.currency,
+                        pickup_stop_id=serializer.validated_data.get('pickup_stop_id'),
+                        dropoff_stop_id=serializer.validated_data.get('dropoff_stop_id'),
+                        cargo_description=serializer.validated_data.get('cargo_description', ''),
+                        recipient_name=serializer.validated_data.get('recipient_name', ''),
+                        recipient_phone=serializer.validated_data.get('recipient_phone', '')
+                    )
+                    
+                    ride.reserved_cargo += weight
+                    ride.save(update_fields=['reserved_cargo', 'updated_at'])
+                    
+                from kiboss.apps.rides.serializers import CargoBookingSerializer
+                response_serializer = CargoBookingSerializer(booking)
+                return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+                
+        except LockAcquisitionError:
+            return Response(
+                {'error': 'Unable to process cargo booking.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+            
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Filter by sender
+        sender_id = self.request.query_params.get('sender')
+        if sender_id == 'me':
+            queryset = queryset.filter(sender=self.request.user)
+        elif sender_id:
+            queryset = queryset.filter(sender_id=sender_id)
+            
+        # Filter by ride
+        ride_id = self.request.query_params.get('ride')
+        if ride_id:
+            queryset = queryset.filter(ride_id=ride_id)
+            
+        return queryset
+        
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        booking = self.get_object()
+        reason = request.data.get('reason', '')
+        booking.cancel(reason=reason)
+        serializer = self.get_serializer(booking)
+        return Response(serializer.data)

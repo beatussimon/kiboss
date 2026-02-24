@@ -42,6 +42,20 @@ class SeatBookingStatus(models.TextChoices):
     COMPLETED = 'COMPLETED', 'Completed'
 
 
+class CargoBookingStatus(models.TextChoices):
+    """Cargo booking status."""
+    RESERVED = 'RESERVED', 'Reserved (Pending Payment)'
+    CONFIRMED = 'CONFIRMED', 'Confirmed'
+    CANCELLED = 'CANCELLED', 'Cancelled'
+    COMPLETED = 'COMPLETED', 'Completed'
+
+
+class RideType(models.TextChoices):
+    """Classification of the ride."""
+    PERSONAL = 'PERSONAL', 'Personal Ride'
+    BUSINESS = 'BUSINESS', 'Business Ride'
+
+
 class Ride(models.Model):
     """
     Ride model for seat-based ride-sharing.
@@ -74,6 +88,13 @@ class Ride(models.Model):
         default=RideStatus.SCHEDULED
     )
     
+    # Ride classification
+    ride_type = models.CharField(
+        max_length=20,
+        choices=RideType.choices,
+        default=RideType.PERSONAL
+    )
+    
     # Route
     route_name = models.CharField(max_length=255)
     origin = models.CharField(max_length=255)
@@ -96,9 +117,18 @@ class Ride(models.Model):
     seat_price = models.DecimalField(max_digits=10, decimal_places=2)
     currency = models.CharField(max_length=3, default='TZS')
     
+    # Cargo capacity
+    cargo_enabled = models.BooleanField(default=False)
+    total_cargo = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'), help_text="Total cargo capacity in kg or units")
+    cargo_price = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'), help_text="Price per kg or unit")
+    
     # Seat management
     reserved_seats = models.PositiveIntegerField(default=0)
     confirmed_seats = models.PositiveIntegerField(default=0)
+    
+    # Cargo management
+    reserved_cargo = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    confirmed_cargo = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
     
     # Vehicle details
     vehicle_description = models.CharField(max_length=255, blank=True)
@@ -140,17 +170,44 @@ class Ride(models.Model):
         return f"Ride {self.id}: {self.origin} → {self.destination} ({self.departure_time})"
 
     def save(self, *args, **kwargs):
-        if self.confirmed_seats >= self.total_seats and self.status in [RideStatus.OPEN, RideStatus.SCHEDULED]:
-            self.status = RideStatus.FULL
+        # Update full status dynamically based on multiple capacity pools
+        seats_full = (self.reserved_seats + self.confirmed_seats) >= self.total_seats
+        cargo_full = not self.cargo_enabled or ((self.reserved_cargo + self.confirmed_cargo) >= self.total_cargo)
+        
+        status_changed = False
+        if self.status in [RideStatus.OPEN, RideStatus.SCHEDULED]:
+            if seats_full and cargo_full:
+                self.status = RideStatus.FULL
+                status_changed = True
+        elif self.status == RideStatus.FULL:
+            if not (seats_full and cargo_full):
+                # Restore visibility if a cancellation happened
+                if self.departure_time > timezone.now():
+                    self.status = RideStatus.SCHEDULED
+                    status_changed = True
+        
+        if status_changed and 'update_fields' in kwargs:
+            update_fields = kwargs['update_fields']
+            if update_fields is not None and 'status' not in update_fields:
+                kwargs['update_fields'] = list(update_fields) + ['status']
+                
         super().save(*args, **kwargs)
     
     def get_available_seats(self):
         """Get number of available seats (considering both reserved and confirmed)."""
         return max(0, self.total_seats - self.reserved_seats - self.confirmed_seats)
+        
+    def get_available_cargo(self):
+        """Get available cargo capacity."""
+        if not self.cargo_enabled:
+            return Decimal('0.00')
+        return max(Decimal('0.00'), self.total_cargo - self.reserved_cargo - self.confirmed_cargo)
     
     def is_full(self):
-        """Check if ride is fully booked (considering both reserved and confirmed)."""
-        return (self.reserved_seats + self.confirmed_seats) >= self.total_seats
+        """Check if ride is fully booked across all active capacity pools."""
+        seats_full = (self.reserved_seats + self.confirmed_seats) >= self.total_seats
+        cargo_full = not self.cargo_enabled or ((self.reserved_cargo + self.confirmed_cargo) >= self.total_cargo)
+        return seats_full and cargo_full
     
     def can_book(self):
         """Check if ride accepts new bookings."""
@@ -363,7 +420,8 @@ class SeatBooking(models.Model):
             
             # Update ride seat counts
             self.ride.confirmed_seats = max(0, self.ride.confirmed_seats - 1)
-            self.ride.save(update_fields=['confirmed_seats', 'updated_at'])
+            # We call save() to trigger the visibility logic update in Ride.save()
+            self.ride.save()
     
     def mark_no_show(self):
         """Mark passenger as no-show."""
@@ -401,6 +459,7 @@ class RideSchedule(models.Model):
     
     name = models.CharField(max_length=255)
     schedule_type = models.CharField(max_length=20, choices=SCHEDULE_TYPES)
+    ride_type = models.CharField(max_length=20, choices=RideType.choices, default=RideType.PERSONAL)
     
     # Route (copied to rides)
     origin = models.CharField(max_length=255)
@@ -421,6 +480,11 @@ class RideSchedule(models.Model):
     total_seats = models.PositiveIntegerField(default=4)
     seat_price = models.DecimalField(max_digits=10, decimal_places=2)
     currency = models.CharField(max_length=3, default='TZS')
+    
+    # Cargo capacity and pricing
+    cargo_enabled = models.BooleanField(default=False)
+    total_cargo = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    cargo_price = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
     
     # Validity period
     valid_from = models.DateField()
@@ -478,6 +542,7 @@ class RideSchedule(models.Model):
                     ride = Ride.objects.create(
                         driver=self.driver,
                         vehicle_asset=vehicle_asset,
+                        ride_type=self.ride_type,
                         route_name=self.name,
                         origin=self.origin,
                         destination=self.destination,
@@ -485,6 +550,9 @@ class RideSchedule(models.Model):
                         departure_time=departure_datetime,
                         total_seats=self.total_seats,
                         seat_price=self.seat_price,
+                        cargo_enabled=self.cargo_enabled,
+                        total_cargo=self.total_cargo,
+                        cargo_price=self.cargo_price,
                         currency=self.currency,
                         is_recurring=True,
                         recurring_pattern={
@@ -501,3 +569,97 @@ class RideSchedule(models.Model):
 
 # Import transaction for atomic operations
 from django.db import transaction
+
+class CargoBooking(models.Model):
+    """
+    Individual cargo booking on a ride.
+    """
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    ride = models.ForeignKey(
+        Ride,
+        on_delete=models.PROTECT,
+        related_name='cargo_bookings'
+    )
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='cargo_shipments'
+    )
+    
+    # Cargo details
+    weight = models.DecimalField(max_digits=10, decimal_places=2, help_text="Weight or units booked")
+    
+    # Status
+    status = models.CharField(
+        max_length=20,
+        choices=CargoBookingStatus.choices,
+        default=CargoBookingStatus.RESERVED
+    )
+    
+    # Stops
+    pickup_stop = models.ForeignKey(
+        RideStop,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='cargo_pickup_bookings'
+    )
+    dropoff_stop = models.ForeignKey(
+        RideStop,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='cargo_dropoff_bookings'
+    )
+    
+    # Pricing
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    currency = models.CharField(max_length=3, default='TZS')
+    
+    payment = models.OneToOneField(
+        'payments.Payment',
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='cargo_booking'
+    )
+    
+    # Cargo specific details
+    cargo_description = models.TextField(blank=True, help_text="Description of items being shipped")
+    recipient_name = models.CharField(max_length=255, blank=True)
+    recipient_phone = models.CharField(max_length=20, blank=True)
+    
+    # Cancellation tracking
+    cancelled_at = models.DateTimeField(blank=True, null=True)
+    cancellation_reason = models.TextField(blank=True)
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'cargo_bookings'
+        verbose_name = 'Cargo Booking'
+        verbose_name_plural = 'Cargo Bookings'
+        indexes = [
+            models.Index(fields=['ride']),
+            models.Index(fields=['sender']),
+            models.Index(fields=['status']),
+        ]
+    
+    def __str__(self):
+        return f"Cargo {self.weight} on {self.ride.id} - {self.sender.email}"
+        
+    def cancel(self, reason=''):
+        """Cancel cargo booking."""
+        if self.status == CargoBookingStatus.CONFIRMED:
+            self.status = CargoBookingStatus.CANCELLED
+            self.cancelled_at = timezone.now()
+            self.cancellation_reason = reason
+            self.save()
+            
+            # Restore ride cargo capacity
+            self.ride.confirmed_cargo = max(Decimal('0.00'), self.ride.confirmed_cargo - self.weight)
+            # Save ride, which triggers the visibility capacity check automatically
+            self.ride.save()

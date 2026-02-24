@@ -97,10 +97,18 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def is_participant(self, thread_id, user):
-        from kiboss.apps.messaging.models import Thread
+        from kiboss.apps.messaging.models import Thread, ThreadType
+        from kiboss.apps.rbac.models import UserRole, Role
         try:
             thread = Thread.objects.get(id=thread_id)
-            return thread.participants.filter(id=user.id).exists()
+            if thread.participants.filter(id=user.id).exists():
+                return True
+                
+            # Allow Support Staff to connect to Support Threads
+            if thread.thread_type == ThreadType.SUPPORT:
+                return user.is_superuser or UserRole.objects.filter(user=user, role=Role.SUPPORT).exists()
+                
+            return False
         except (Thread.DoesNotExist, ValueError):
             return False
 

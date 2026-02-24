@@ -57,6 +57,18 @@ class StaffTaskSerializer(serializers.ModelSerializer):
                 data['payment_reference'] = latest_sub.payment_reference
             return data
             
+        from kiboss.apps.messaging.models import Thread
+        if isinstance(content_object, Thread):
+            from kiboss.apps.messaging.serializers import ThreadSerializer
+            # We don't have request context here, so some ThreadSerializer fields might fail if they need it.
+            # Usually ThreadSerializer handles it gracefully or we pass an empty context.
+            return ThreadSerializer(content_object, context={}).data
+            
+        from kiboss.apps.common.models import Feedback
+        if isinstance(content_object, Feedback):
+            from kiboss.apps.common.serializers import FeedbackSerializer
+            return FeedbackSerializer(content_object).data
+            
         # Handle other types if needed later
         return None
 

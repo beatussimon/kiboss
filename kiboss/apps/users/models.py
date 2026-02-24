@@ -493,6 +493,10 @@ class CorporateProfile(models.Model):
         VERIFIED = 'VERIFIED', 'Verified'
         REJECTED = 'REJECTED', 'Rejected'
 
+    class Category(models.TextChoices):
+        RIDE = 'RIDE', 'Ride Business'
+        ASSET = 'ASSET', 'Asset Business'
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(
         User,
@@ -504,6 +508,12 @@ class CorporateProfile(models.Model):
     registration_number = models.CharField(max_length=100)
     tax_id = models.CharField(max_length=100, blank=True)
     verification_documents = models.JSONField(default=list, blank=True)
+    
+    business_category = models.CharField(
+        max_length=10,
+        choices=Category.choices,
+        default=Category.ASSET
+    )
     
     verification_status = models.CharField(
         max_length=20,

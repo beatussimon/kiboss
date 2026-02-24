@@ -38,7 +38,8 @@ class TaskType(models.TextChoices):
     """Job task categories."""
     VEHICLE_VERIFICATION = 'VEHICLE_VERIFICATION', 'Vehicle Verification'
     IDENTITY_VERIFICATION = 'IDENTITY_VERIFICATION', 'Identity Verification'
-    CORPORATE_VERIFICATION = 'CORPORATE_VERIFICATION', 'Corporate Verification'
+    CORPORATE_RIDE_VERIFICATION = 'CORPORATE_RIDE_VERIFICATION', 'Corporate Ride Verification'
+    CORPORATE_ASSET_VERIFICATION = 'CORPORATE_ASSET_VERIFICATION', 'Corporate Asset Verification'
     ASSET_AUDIT = 'ASSET_AUDIT', 'Asset Audit'
     DISPUTE_RESOLUTION = 'DISPUTE_RESOLUTION', 'Dispute Resolution'
     SUPPORT_TICKET = 'SUPPORT_TICKET', 'Support Ticket'

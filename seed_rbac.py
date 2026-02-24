@@ -23,13 +23,13 @@ car_verifier_perms = [
 for perm in car_verifier_perms:
     RolePermission.objects.get_or_create(role=Role.CAR_VERIFIER, permission=perm)
 
-# 1b. BUSINESS_VERIFIER Permissions
+# 1b. RIDE_BUSINESS_VERIFIER Permissions
 business_verifier_perms = [
     Permission.USER_VIEW,
     Permission.USER_VERIFY,
 ]
 for perm in business_verifier_perms:
-    RolePermission.objects.get_or_create(role=Role.BUSINESS_VERIFIER, permission=perm)
+    RolePermission.objects.get_or_create(role=Role.RIDE_BUSINESS_VERIFIER, permission=perm)
 
 # 2. SUPPORT Permissions
 support_perms = [

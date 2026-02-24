@@ -26,7 +26,8 @@ class Role(models.TextChoices):
     MODERATOR = 'MODERATOR', 'Moderator'
     VERIFIER = 'VERIFIER', 'General Verifier'
     CAR_VERIFIER = 'CAR_VERIFIER', 'Car Verifier'
-    BUSINESS_VERIFIER = 'BUSINESS_VERIFIER', 'Business Verifier'
+    RIDE_BUSINESS_VERIFIER = 'RIDE_BUSINESS_VERIFIER', 'Ride Business Verifier'
+    ASSET_BUSINESS_VERIFIER = 'ASSET_BUSINESS_VERIFIER', 'Asset Business Verifier'
 
 
 class Permission(models.TextChoices):
@@ -87,7 +88,7 @@ class RolePermission(models.Model):
     """Role-permission mapping."""
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    role = models.CharField(max_length=20, choices=Role.choices)
+    role = models.CharField(max_length=30, choices=Role.choices)
     permission = models.CharField(max_length=50, choices=Permission.choices)
     
     class Meta:
@@ -107,7 +108,7 @@ class UserRole(models.Model):
         on_delete=models.CASCADE,
         related_name='user_roles'
     )
-    role = models.CharField(max_length=20, choices=Role.choices)
+    role = models.CharField(max_length=30, choices=Role.choices)
     
     # Scope limitations (e.g., only for specific assets)
     scope_type = models.CharField(max_length=50, blank=True)

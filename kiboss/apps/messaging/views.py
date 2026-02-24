@@ -31,12 +31,29 @@ class IsThreadParticipant(permissions.BasePermission):
     Permission check: only thread participants can access the thread.
     """
     def has_object_permission(self, request, view, obj):
+        from kiboss.apps.messaging.models import ThreadType
+        from kiboss.apps.rbac.models import UserRole, Role
+        
+        # Check if user has SUPPORT role
+        is_support_staff = False
+        if request.user.is_authenticated:
+            is_support_staff = request.user.is_superuser or UserRole.objects.filter(
+                user=request.user, 
+                role=Role.SUPPORT
+            ).exists()
+
         # For thread-level permissions
         if isinstance(obj, Thread):
+            if is_support_staff and obj.thread_type == ThreadType.SUPPORT:
+                return True
             return request.user in obj.participants.all()
+            
         # For message-level permissions
         if isinstance(obj, Message):
+            if is_support_staff and obj.thread.thread_type == ThreadType.SUPPORT:
+                return True
             return request.user in obj.thread.participants.all()
+            
         return False
 
 
@@ -58,8 +75,23 @@ class ThreadViewSet(viewsets.ModelViewSet):
         """Filter threads to only show user's threads."""
         queryset = Thread.objects.prefetch_related('participants').order_by('-updated_at')
         
-        # Filter by participant (current user)
-        queryset = queryset.filter(participants=self.request.user)
+        # Base permissions logic:
+        # A user can see threads they participate in.
+        # If they are SUPPORT staff, they can ALSO see all SUPPORT threads.
+        from kiboss.apps.rbac.models import UserRole, Role
+        from kiboss.apps.messaging.models import ThreadType
+        from django.db.models import Q
+        
+        is_support_staff = self.request.user.is_superuser or UserRole.objects.filter(
+            user=self.request.user, role=Role.SUPPORT
+        ).exists()
+
+        if is_support_staff:
+            queryset = queryset.filter(
+                Q(participants=self.request.user) | Q(thread_type=ThreadType.SUPPORT)
+            ).distinct()
+        else:
+            queryset = queryset.filter(participants=self.request.user)
         
         # Filter by thread type
         thread_type = self.request.query_params.get('thread_type')
@@ -106,8 +138,19 @@ class ThreadViewSet(viewsets.ModelViewSet):
         """Send a message to the thread."""
         thread = self.get_object()
         
-        # Check if user is participant
-        if request.user not in thread.participants.all():
+        # Check if user is participant or support staff evaluating a support thread
+        from kiboss.apps.messaging.models import ThreadType
+        from kiboss.apps.rbac.models import UserRole, Role
+        
+        is_support_staff = request.user.is_superuser or UserRole.objects.filter(
+            user=request.user, role=Role.SUPPORT
+        ).exists()
+        
+        is_authorized = (request.user in thread.participants.all()) or (
+            is_support_staff and thread.thread_type == ThreadType.SUPPORT
+        )
+        
+        if not is_authorized:
             return Response(
                 {'error': 'You are not a participant of this thread'},
                 status=status.HTTP_403_FORBIDDEN
@@ -131,6 +174,43 @@ class ThreadViewSet(viewsets.ModelViewSet):
             # Update thread message count
             thread.message_count += 1
             thread.save()
+            
+            # Check if this message should bump/create a StaffTask
+            if thread.thread_type in [ThreadType.SUPPORT, ThreadType.DISPUTE]:
+                from kiboss.apps.tasks.models import StaffTask, TaskType, TaskStatus, TaskPriority
+                from django.contrib.contenttypes.models import ContentType
+                
+                t_type = TaskType.SUPPORT_TICKET if thread.thread_type == ThreadType.SUPPORT else TaskType.DISPUTE_RESOLUTION
+                role = 'SUPPORT'
+                
+                # Fetch target_user for task assignment context
+                target_user = None
+                for participant in thread.participants.all():
+                    if not participant.is_superuser and participant != request.user:
+                        target_user = participant
+                        break
+                
+                if not target_user: target_user = request.user
+                
+                task, created = StaffTask.objects.get_or_create(
+                    task_type=t_type,
+                    content_type=ContentType.objects.get_for_model(thread.__class__),
+                    object_id=thread.id,
+                    defaults={
+                        'title': f"{thread.get_thread_type_display()}: {thread.subject}",
+                        'description': f"New message from {request.user.email}: {message.content[:100]}",
+                        'status': TaskStatus.PENDING,
+                        'priority': TaskPriority.HIGH if thread.thread_type == ThreadType.DISPUTE else TaskPriority.MEDIUM,
+                        'assigned_role': role,
+                        'created_by': target_user
+                    }
+                )
+                
+                if not created and task.status in [TaskStatus.COMPLETED, TaskStatus.CANCELLED]:
+                    # Re-open the task
+                    task.status = TaskStatus.PENDING
+                    task.description += f"\n[System Re-opened by message from {request.user.email}]"
+                    task.save(update_fields=['status', 'description', 'updated_at'])
             
             # Broadcast via Channels to the specific thread
             from asgiref.sync import async_to_sync
@@ -183,8 +263,19 @@ class ThreadViewSet(viewsets.ModelViewSet):
         """Get all messages in the thread with pagination."""
         thread = self.get_object()
         
-        # Check if user is participant
-        if request.user not in thread.participants.all():
+        # Check if user is participant or support staff
+        from kiboss.apps.messaging.models import ThreadType
+        from kiboss.apps.rbac.models import UserRole, Role
+        
+        is_support_staff = request.user.is_superuser or UserRole.objects.filter(
+            user=request.user, role=Role.SUPPORT
+        ).exists()
+        
+        is_authorized = (request.user in thread.participants.all()) or (
+            is_support_staff and thread.thread_type == ThreadType.SUPPORT
+        )
+        
+        if not is_authorized:
             return Response(
                 {'error': 'You are not a participant of this thread'},
                 status=status.HTTP_403_FORBIDDEN
@@ -433,6 +524,35 @@ class ThreadViewSet(viewsets.ModelViewSet):
                     save_required = True
                 if save_required:
                     thread.save(update_fields=['booking', 'ride', 'updated_at'])
+                
+                # Check if we need to bump or create a StaffTask for existing support threads
+                if thread_type in [ThreadType.SUPPORT, ThreadType.DISPUTE]:
+                    from kiboss.apps.tasks.models import StaffTask, TaskType, TaskStatus, TaskPriority
+                    from django.contrib.contenttypes.models import ContentType
+                    
+                    t_type = TaskType.SUPPORT_TICKET if thread_type == ThreadType.SUPPORT else TaskType.DISPUTE_RESOLUTION
+                    role = 'SUPPORT'
+                    
+                    task, created = StaffTask.objects.get_or_create(
+                        task_type=t_type,
+                        content_type=ContentType.objects.get_for_model(Thread),
+                        object_id=thread.id,
+                        defaults={
+                            'title': f"{thread.get_thread_type_display()}: {thread.subject}",
+                            'description': f"Re-opened {thread_type.lower()} thread by {request.user.email}.",
+                            'status': TaskStatus.PENDING,
+                            'priority': TaskPriority.HIGH if thread_type == ThreadType.DISPUTE else TaskPriority.MEDIUM,
+                            'assigned_role': role,
+                            'created_by': request.user
+                        }
+                    )
+                    
+                    if not created and task.status in [TaskStatus.COMPLETED, TaskStatus.CANCELLED]:
+                        # Re-open the task
+                        task.status = TaskStatus.PENDING
+                        task.description += "\n[System Re-opened by user reply]"
+                        task.save(update_fields=['status', 'description', 'updated_at'])
+                
                 return Response(ThreadSerializer(thread, context={'request': request}).data)
 
             # 2. Create new contextual thread
@@ -455,6 +575,26 @@ class ThreadViewSet(viewsets.ModelViewSet):
                 ride=ride,
             )
             thread.participants.add(request.user, target_user)
+            
+            # Auto-create a StaffTask if it's a SUPPORT or DISPUTE thread
+            if thread_type in [ThreadType.SUPPORT, ThreadType.DISPUTE]:
+                from kiboss.apps.tasks.models import StaffTask, TaskType, TaskStatus, TaskPriority
+                from django.contrib.contenttypes.models import ContentType
+                
+                t_type = TaskType.SUPPORT_TICKET if thread_type == ThreadType.SUPPORT else TaskType.DISPUTE_RESOLUTION
+                role = 'SUPPORT'
+                
+                StaffTask.objects.create(
+                    title=f"{thread.get_thread_type_display()}: {subject}",
+                    description=f"New {thread_type.lower()} thread started by {request.user.email}. Check Messaging center.",
+                    task_type=t_type,
+                    status=TaskStatus.PENDING,
+                    priority=TaskPriority.HIGH if thread_type == ThreadType.DISPUTE else TaskPriority.MEDIUM,
+                    assigned_role=role,
+                    content_type=ContentType.objects.get_for_model(Thread),
+                    object_id=thread.id,
+                    created_by=request.user
+                )
 
         return Response(
             ThreadSerializer(thread, context={'request': request}).data,

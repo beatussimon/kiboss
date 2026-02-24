@@ -57,6 +57,7 @@ class CorporateRegistrationView(APIView):
         country = request.data.get('country', 'Tanzania')
         plan_type = request.data.get('plan_type', 'MONTHLY') # 'MONTHLY' or 'YEARLY'
         payment_reference = request.data.get('payment_reference', '')
+        business_category = request.data.get('business_category', 'ASSET')
         
         if not company_name or not registration_number:
             return Response(
@@ -73,10 +74,15 @@ class CorporateRegistrationView(APIView):
         import uuid
         from kiboss.apps.common.validators import validate_file_size, validate_document_extension
         
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        
         for file in files:
             # Validate
-            validate_file_size(file)
-            validate_document_extension(file)
+            try:
+                validate_file_size(file)
+                validate_document_extension(file)
+            except DjangoValidationError as e:
+                return Response({'error': e.messages[0]}, status=status.HTTP_400_BAD_REQUEST)
             
             # Save physical file to storage
             ext = os.path.splitext(file.name)[1]
@@ -100,6 +106,7 @@ class CorporateRegistrationView(APIView):
                 company_name=company_name,
                 registration_number=registration_number,
                 tax_id=request.data.get('tax_id', ''),
+                business_category=business_category,
                 verification_status='PENDING',
                 verification_documents=uploaded_docs
             )
@@ -147,10 +154,12 @@ class CorporateRegistrationView(APIView):
         company_name = request.data.get('company_name')
         registration_number = request.data.get('registration_number')
         tax_id = request.data.get('tax_id')
+        business_category = request.data.get('business_category')
         
         if company_name: profile.company_name = company_name
         if registration_number: profile.registration_number = registration_number
         if tax_id is not None: profile.tax_id = tax_id
+        if business_category: profile.business_category = business_category
         
         # Handle file uploads if new documents are provided
         files = request.FILES.getlist('documents')

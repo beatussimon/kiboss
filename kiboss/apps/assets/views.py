@@ -47,6 +47,9 @@ class AssetViewSet(viewsets.ModelViewSet):
             # 1. Check if user has a Corporate Profile
             if not hasattr(user, 'corporate_profile'):
                 raise PermissionDenied("Corporate verification required. Please register as a business first.")
+                
+            if user.corporate_profile.business_category != 'ASSET':
+                raise PermissionDenied("Only Asset businesses can create Properties (Hotels/Restaurants).")
             
             # 2. Check if Corporate Profile is Verified or Pending
             # Allow PENDING profiles to create, but they won't be listed until verified

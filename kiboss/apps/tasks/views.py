@@ -50,9 +50,8 @@ class StaffTaskViewSet(viewsets.ModelViewSet):
             # Regular users can only see tasks they created (submissions)
             return queryset.filter(created_by=user).order_by('created_at')
             
-        # Dynamically map permissions to task types
         permission_task_map = {
-            Permission.USER_VERIFY: [TaskType.IDENTITY_VERIFICATION, TaskType.CORPORATE_VERIFICATION],
+            Permission.USER_VERIFY: [TaskType.IDENTITY_VERIFICATION, TaskType.CORPORATE_RIDE_VERIFICATION, TaskType.CORPORATE_ASSET_VERIFICATION],
             Permission.ASSET_VERIFY: [TaskType.VEHICLE_VERIFICATION, TaskType.ASSET_AUDIT],
             Permission.DISPUTE_VIEW: [TaskType.DISPUTE_RESOLUTION],
             Permission.SUPPORT_TICKET: [TaskType.SUPPORT_TICKET], 
@@ -62,6 +61,24 @@ class StaffTaskViewSet(viewsets.ModelViewSet):
         for perm in user_permissions:
             if perm in permission_task_map:
                 allowed_types.extend(permission_task_map[perm])
+                
+        # Strict separation: Users must have the specific role to see specific business verification tasks
+        strict_role_requirements = {
+            TaskType.CORPORATE_RIDE_VERIFICATION: Role.RIDE_BUSINESS_VERIFIER,
+            TaskType.CORPORATE_ASSET_VERIFICATION: Role.ASSET_BUSINESS_VERIFIER,
+        }
+        
+        final_allowed_types = []
+        for t_type in allowed_types:
+            if t_type in strict_role_requirements:
+                required_role = strict_role_requirements[t_type]
+                # If they have the specific role OR they are Super Admin, allow it
+                if required_role in roles or user.is_superuser or Role.SUPER_ADMIN in roles:
+                    final_allowed_types.append(t_type)
+            else:
+                final_allowed_types.append(t_type)
+                
+        allowed_types = final_allowed_types
             
         # Staff see tasks STRICTLY according to their permissions:
         # 1. Specifically assigned to their individual ID
@@ -175,7 +192,7 @@ class StaffTaskViewSet(viewsets.ModelViewSet):
                 task.completion_date = timezone.now()
                 
                 # Activate latest pending subscription if it's a corporate verification
-                if task.task_type == TaskType.CORPORATE_VERIFICATION:
+                if task.task_type in [TaskType.CORPORATE_RIDE_VERIFICATION, TaskType.CORPORATE_ASSET_VERIFICATION]:
                     profile = task.content_object
                     if profile:
                         latest_sub = profile.subscriptions.filter(status='PENDING').first()

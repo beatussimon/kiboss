@@ -14,7 +14,7 @@ class CorporateProfileSerializer(serializers.ModelSerializer):
     """Serializer for CorporateProfile model."""
     class Meta:
         model = CorporateProfile
-        fields = ['id', 'company_name', 'registration_number', 'tax_id', 'verification_status', 'created_at']
+        fields = ['id', 'company_name', 'registration_number', 'tax_id', 'verification_status', 'business_category', 'created_at']
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
