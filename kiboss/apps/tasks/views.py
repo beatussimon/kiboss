@@ -7,11 +7,12 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import transaction, models
 from django.utils import timezone
-from kiboss.apps.tasks.models import StaffTask, TaskStatus, TaskType
-from kiboss.apps.tasks.serializers import StaffTaskSerializer, TaskActionSerializer, TaskAssignmentSerializer
+from kiboss.apps.tasks.models import StaffTask, TaskStatus, TaskType, TaskPriority
+from kiboss.apps.tasks.serializers import StaffTaskSerializer, TaskActionSerializer, TaskAssignmentSerializer, CustomTaskCreateSerializer
 from kiboss.apps.rbac.models import UserRole, Role
 from kiboss.apps.assets.models import VerificationStatus, Asset
 from kiboss.apps.users.serializers import UserSerializer
+from django.contrib.contenttypes.models import ContentType
 
 
 class StaffTaskViewSet(viewsets.ModelViewSet):
@@ -36,6 +37,19 @@ class StaffTaskViewSet(viewsets.ModelViewSet):
         if task_type_filter:
             types = task_type_filter.split(',')
             queryset = queryset.filter(task_type__in=types)
+            
+        # Annotate exact numeric priority for correct sorting
+        from django.db.models import Case, When, Value, IntegerField
+        queryset = queryset.annotate(
+            priority_level=Case(
+                When(priority=TaskPriority.URGENT, then=Value(4)),
+                When(priority=TaskPriority.HIGH, then=Value(3)),
+                When(priority=TaskPriority.MEDIUM, then=Value(2)),
+                When(priority=TaskPriority.LOW, then=Value(1)),
+                default=Value(0),
+                output_field=IntegerField(),
+            )
+        )
         
         # Get user's staff roles and permissions
         from kiboss.apps.rbac.models import UserRole, RolePermission, Permission, Role
@@ -44,11 +58,11 @@ class StaffTaskViewSet(viewsets.ModelViewSet):
         
         # Super admin sees everything (via is_superuser flag or SUPER_ADMIN role)
         if user.is_superuser or Role.SUPER_ADMIN in roles:
-            return queryset.order_by('-priority', 'created_at')
+            return queryset.order_by('-priority_level', '-created_at')
             
         if not roles and not user.is_staff:
             # Regular users can only see tasks they created (submissions)
-            return queryset.filter(created_by=user).order_by('created_at')
+            return queryset.filter(created_by=user).order_by('-created_at')
             
         permission_task_map = {
             Permission.USER_VERIFY: [TaskType.IDENTITY_VERIFICATION, TaskType.CORPORATE_RIDE_VERIFICATION, TaskType.CORPORATE_ASSET_VERIFICATION],
@@ -57,6 +71,7 @@ class StaffTaskViewSet(viewsets.ModelViewSet):
             Permission.SUPPORT_TICKET: [TaskType.SUPPORT_TICKET], 
         }
         
+        # Staff no longer see CUSTOM_TASK by default, only if explicitly assigned to them or their role
         allowed_types = []
         for perm in user_permissions:
             if perm in permission_task_map:
@@ -82,18 +97,18 @@ class StaffTaskViewSet(viewsets.ModelViewSet):
             
         # Staff see tasks STRICTLY according to their permissions:
         # 1. Specifically assigned to their individual ID
-        # 2. Specifically assigned to one of their roles
-        # 3. Tasks assigned to general 'VERIFIER' role (if they have verifier permissions)
-        # 4. Of a type that their permissions allow them to handle (unassigned pool)
+        # 2. Unassigned tasks in the general pool that match their roles or permitted types
         
         is_any_verifier = any(p in user_permissions for p in [Permission.USER_VERIFY, Permission.ASSET_VERIFY])
         
-        return queryset.filter(
-            models.Q(assigned_to=user) |
+        assigned_to_me = models.Q(assigned_to=user)
+        unassigned_pool = models.Q(assigned_to__isnull=True) & (
             models.Q(assigned_role__in=roles) |
             (models.Q(assigned_role='VERIFIER') if is_any_verifier else models.Q(pk__in=[])) |
             models.Q(task_type__in=allowed_types)
-        ).distinct().order_by('-priority', 'created_at')
+        )
+        
+        return queryset.filter(assigned_to_me | unassigned_pool).distinct().order_by('-priority_level', '-created_at')
 
     def destroy(self, request, *args, **kwargs):
         """Only superusers can delete tasks."""
@@ -134,6 +149,43 @@ class StaffTaskViewSet(viewsets.ModelViewSet):
             task.save()
             
         return Response(self.get_serializer(task).data)
+
+    @action(detail=False, methods=['post'])
+    def create_custom(self, request):
+        """
+        Create a custom administrative task.
+        Only superusers can create these tasks.
+        """
+        if not request.user.is_superuser:
+            return Response(
+                {'error': 'Only superusers can create custom tasks.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+            
+        serializer = CustomTaskCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        data = serializer.validated_data
+        
+        with transaction.atomic():
+            # Use the admin user as the linked object for custom tasks
+            content_type = ContentType.objects.get_for_model(request.user)
+            
+            task = StaffTask.objects.create(
+                title=data['title'],
+                description=data.get('description', ''),
+                task_type=TaskType.CUSTOM_TASK,
+                status=TaskStatus.ASSIGNED if data.get('assigned_to') else TaskStatus.PENDING,
+                priority=data.get('priority', TaskPriority.MEDIUM),
+                assigned_to_id=data.get('assigned_to'),
+                assigned_role=data.get('assigned_role', ''),
+                content_type=content_type,
+                object_id=request.user.id,
+                created_by=request.user,
+                extra_data={'custom_attachments': data.get('attachments', [])}
+            )
+            
+        return Response(self.get_serializer(task).data, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=['get'])
     def staff_users(self, request):
@@ -209,7 +261,16 @@ class StaffTaskViewSet(viewsets.ModelViewSet):
             elif action_type == 'REVOKE':
                 task.status = TaskStatus.PENDING
                 task.completion_date = None
-            
+                
+            elif action_type == 'SUBMIT_COMPLETION':
+                task.status = TaskStatus.COMPLETED
+                task.completion_date = timezone.now()
+                # Store feedback internally
+                if not isinstance(task.extra_data, dict):
+                    task.extra_data = {}
+                task.extra_data['completion_feedback'] = notes
+                task.extra_data['completion_attachment'] = request.data.get('attachment', '')
+                
             task.save()
             
         return Response(self.get_serializer(task).data)

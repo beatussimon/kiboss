@@ -43,6 +43,7 @@ class TaskType(models.TextChoices):
     ASSET_AUDIT = 'ASSET_AUDIT', 'Asset Audit'
     DISPUTE_RESOLUTION = 'DISPUTE_RESOLUTION', 'Dispute Resolution'
     SUPPORT_TICKET = 'SUPPORT_TICKET', 'Support Ticket'
+    CUSTOM_TASK = 'CUSTOM_TASK', 'Custom Task'
 
 
 class StaffTask(models.Model):
@@ -112,7 +113,7 @@ class StaffTask(models.Model):
         db_table = 'staff_tasks'
         verbose_name = 'Staff Task'
         verbose_name_plural = 'Staff Tasks'
-        ordering = ['-priority', 'created_at']
+        ordering = ['-priority', '-created_at']
         indexes = [
             models.Index(fields=['status', 'assigned_role']),
             models.Index(fields=['assigned_to']),

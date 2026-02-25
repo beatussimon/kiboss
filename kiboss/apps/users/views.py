@@ -226,6 +226,35 @@ class CorporateRegistrationView(APIView):
             'profile_id': str(profile.id)
         }, status=status.HTTP_200_OK)
 
+    def delete(self, request):
+        user = request.user
+        
+        try:
+            profile = user.corporate_profile
+        except CorporateProfile.DoesNotExist:
+            return Response(
+                {'error': 'No existing corporate profile found for this user.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+            
+        with transaction.atomic():
+            # Delete any verification tasks for this profile created by this user
+            try:
+                from django.contrib.contenttypes.models import ContentType
+                from kiboss.apps.tasks.models import StaffTask
+                content_type = ContentType.objects.get_for_model(profile)
+                StaffTask.objects.filter(content_type=content_type, object_id=profile.id).delete()
+            except Exception as e:
+                print(f"Failed to delete associated verification tasks: {e}")
+                
+            # Delete profile (which cascades to subscriptions)
+            profile.delete()
+            
+        return Response({
+            'status': 'success',
+            'message': 'Corporate application cancelled successfully'
+        }, status=status.HTTP_204_NO_CONTENT)
+
 
 class CurrentUserView(APIView):
     """

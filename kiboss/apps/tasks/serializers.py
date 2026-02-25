@@ -31,6 +31,9 @@ class StaffTaskSerializer(serializers.ModelSerializer):
 
     def get_resource_detail(self, obj):
         """Get the detail of the related resource (e.g., Asset)."""
+        if obj.task_type == TaskType.CUSTOM_TASK:
+            return obj.extra_data
+            
         content_object = obj.content_object
         if isinstance(content_object, Asset):
             # Include documents for verification
@@ -43,18 +46,19 @@ class StaffTaskSerializer(serializers.ModelSerializer):
             from kiboss.apps.users.serializers import UserWithProfileSerializer
             return UserWithProfileSerializer(content_object).data
         
-        if isinstance(content_object, CorporateProfile):
+        if type(content_object).__name__ == 'CorporateProfile' or isinstance(content_object, CorporateProfile):
             from kiboss.apps.users.serializers import CorporateProfileSerializer
             data = CorporateProfileSerializer(content_object).data
-            data['user_email'] = content_object.user.email
-            data['verification_documents'] = content_object.verification_documents
+            data['user_email'] = getattr(content_object, 'user', None) and content_object.user.email
+            data['verification_documents'] = getattr(content_object, 'verification_documents', [])
             
-            # Add latest subscription info
-            latest_sub = content_object.subscriptions.all().first()
-            if latest_sub:
-                data['plan_type'] = latest_sub.plan_type
-                data['amount_paid'] = float(latest_sub.amount_paid)
-                data['payment_reference'] = latest_sub.payment_reference
+            # Add latest subscription info if available
+            if hasattr(content_object, 'subscriptions'):
+                latest_sub = content_object.subscriptions.all().first()
+                if latest_sub:
+                    data['plan_type'] = latest_sub.plan_type
+                    data['amount_paid'] = float(latest_sub.amount_paid)
+                    data['payment_reference'] = latest_sub.payment_reference
             return data
             
         from kiboss.apps.messaging.models import Thread
@@ -76,8 +80,9 @@ class StaffTaskSerializer(serializers.ModelSerializer):
 class TaskActionSerializer(serializers.Serializer):
     """Serializer for taking actions on tasks (Approve, Reject, etc.)."""
     
-    action = serializers.ChoiceField(choices=['APPROVE', 'REJECT', 'REQUEST_CHANGES', 'REVOKE'])
+    action = serializers.ChoiceField(choices=['APPROVE', 'REJECT', 'REQUEST_CHANGES', 'REVOKE', 'SUBMIT_COMPLETION'])
     notes = serializers.CharField(required=False, allow_blank=True)
+    attachment = serializers.CharField(required=False, allow_blank=True)
 
 
 class TaskAssignmentSerializer(serializers.Serializer):
@@ -86,3 +91,18 @@ class TaskAssignmentSerializer(serializers.Serializer):
     assigned_to = serializers.UUIDField(required=False, allow_null=True)
     assigned_role = serializers.CharField(required=False, allow_blank=True)
     priority = serializers.ChoiceField(choices=TaskPriority.choices, required=False)
+
+
+class CustomTaskCreateSerializer(serializers.Serializer):
+    """Serializer for creating custom administrative tasks."""
+    
+    title = serializers.CharField(max_length=255)
+    description = serializers.CharField(required=False, allow_blank=True)
+    priority = serializers.ChoiceField(choices=TaskPriority.choices, default=TaskPriority.MEDIUM)
+    assigned_to = serializers.UUIDField(required=False, allow_null=True)
+    assigned_role = serializers.CharField(required=False, allow_blank=True)
+    attachments = serializers.ListField(
+        child=serializers.DictField(), 
+        required=False, 
+        default=list
+    )

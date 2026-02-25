@@ -106,9 +106,27 @@ class AssetViewSet(viewsets.ModelViewSet):
 
         # EXISTING LOGIC: Vehicles and other assets
         if asset_type == AssetType.VEHICLE:
+            # Check if user has a verified corporate profile
+            is_verified_corporate = False
+            if hasattr(user, 'corporate_profile') and user.corporate_profile.verification_status == 'VERIFIED':
+                is_verified_corporate = True
+                
+            if not is_verified_corporate:
+                # Regular users can only have 1 active/pending vehicle (exclude soft-deleted)
+                vehicle_count = Asset.objects.filter(
+                    owner=user, 
+                    asset_type=AssetType.VEHICLE
+                ).exclude(is_active=False, is_listed=False).count()
+                
+                if vehicle_count >= 1:
+                    raise PermissionDenied("Regular users are limited to listing a single vehicle. Please register as a Corporate Ride Business to add a fleet.")
+            
             serializer.save(
                 owner=user,
-                verification_status=VerificationStatus.PENDING
+                verification_status=VerificationStatus.PENDING,
+                is_corporate=is_verified_corporate,
+                is_active=True,
+                is_listed=False
             )
         else:
             # Other assets auto-verified for now
@@ -116,7 +134,9 @@ class AssetViewSet(viewsets.ModelViewSet):
                 owner=user,
                 verification_status=VerificationStatus.VERIFIED,
                 verified_at=timezone.now(),
-                verified_by=user
+                verified_by=user,
+                is_active=True,
+                is_listed=True
             )
 
     def perform_update(self, serializer):
@@ -170,8 +190,16 @@ class AssetViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(verification_status=verification_status)
         
         # Filter by active/listed
-        if self.action in ['list', 'retrieve'] and owner_id != 'me':
+        if self.action == 'list' and owner_id != 'me':
             queryset = queryset.filter(is_active=True)
+            
+        if self.action == 'retrieve':
+            from django.db.models import Q
+            if self.request.user.is_authenticated:
+                # Owners can view their own inactive assets
+                queryset = queryset.filter(Q(is_active=True) | Q(owner=self.request.user))
+            else:
+                queryset = queryset.filter(is_active=True)
 
         is_active = self.request.query_params.get('is_active')
         if is_active is not None:
