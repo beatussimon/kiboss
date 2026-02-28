@@ -147,6 +147,17 @@ class User(AbstractUser):
     is_phone_verified = models.BooleanField(default=False)
     is_identity_verified = models.BooleanField(default=False)
     
+    class AccountTier(models.TextChoices):
+        FREE = 'FREE', 'Free Tier'
+        PLUS = 'PLUS', 'Plus Tier'
+        
+    account_tier = models.CharField(
+        max_length=20,
+        choices=AccountTier.choices,
+        default=AccountTier.FREE,
+        help_text="User subscription tier (Corporate is determined by CorporateProfile)"
+    )
+    
     # Verification tier (manual override for special users)
     verification_tier = models.CharField(
         max_length=20,
@@ -210,23 +221,64 @@ class User(AbstractUser):
     @property
     def verification_badge(self):
         """Get the verification badge info for this user."""
-        # If manual tier is set, use it
+        # 1. Highest Priority: Corporate Verify (Business Tier)
+        if hasattr(self, 'corporate_profile') and self.corporate_profile.verification_status == 'VERIFIED':
+            return {
+                'tier': 'business',
+                'color': 'indigo'
+            }
+            
+        # 2. Manual Verification Override (e.g. VIPs, Gold)
         if self.verification_tier and self.verification_tier != VerificationTier.NONE:
             return {
                 'tier': self.verification_tier,
                 'color': VerificationTier.get_badge_color(self.verification_tier)
             }
-        # Otherwise calculate from trust score
-        tier = VerificationTier.get_tier(self.trust_score)
+            
+        # 3. Plus Tier Subscription
+        if self.account_tier == self.AccountTier.PLUS:
+            return {
+                'tier': 'premium',
+                'color': 'blue'
+            }
+            
+        # 4. Standard Identity Verified
+        if self.is_identity_verified:
+            return {
+                'tier': 'basic',
+                'color': 'gray'
+            }
+            
+        # 5. Default calculated from Trust Score (legacy fallback)
+        if self.trust_score >= VerificationTier.GOLD_THRESHOLD:
+            return {
+                'tier': VerificationTier.GOLD,
+                'color': VerificationTier.get_badge_color(VerificationTier.GOLD)
+            }
+        
         return {
-            'tier': tier,
-            'color': VerificationTier.get_badge_color(tier)
+            'tier': 'none',
+            'color': None
         }
     
     @property
     def has_verification_badge(self):
         """Check if user has any verification badge."""
         return self.verification_badge['color'] is not None
+
+    @property
+    def visibility_boost(self):
+        """
+        Compute listing visibility multiplier based on account tier.
+        Business+ (verified corporate): 2.0x
+        Plus: 1.5x
+        Free: 1.0x (baseline)
+        """
+        if hasattr(self, 'corporate_profile') and self.corporate_profile.verification_status == 'VERIFIED':
+            return 2.0
+        if self.account_tier == self.AccountTier.PLUS:
+            return 1.5
+        return 1.0
 
 
 class UserProfileManager(models.Manager):
@@ -583,6 +635,66 @@ class BusinessSubscription(models.Model):
     @property
     def is_active(self):
         return self.status == self.Status.ACTIVE and self.end_date > timezone.now()
+
+
+class CorporateWorker(models.Model):
+    """
+    Workers linked to a CorporateProfile.
+    Supports invite workflow: email sent first, user FK linked on accept.
+    """
+    class Role(models.TextChoices):
+        DRIVER = 'DRIVER', 'Driver'
+        ACCOUNTANT = 'ACCOUNTANT', 'Accountant'
+        MANAGER = 'MANAGER', 'Manager'
+        SUPPORT = 'SUPPORT', 'Customer Support'
+
+    class InviteStatus(models.TextChoices):
+        INVITED = 'INVITED', 'Invited'
+        ACTIVE = 'ACTIVE', 'Active'
+        DEACTIVATED = 'DEACTIVATED', 'Deactivated'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    corporate_profile = models.ForeignKey(
+        CorporateProfile,
+        on_delete=models.CASCADE,
+        related_name='workers'
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='corporate_employments'
+    )
+    email = models.EmailField(help_text="Invite email for the worker")
+    name = models.CharField(max_length=255, blank=True, help_text="Display name (before user accepts)")
+    role = models.CharField(max_length=20, choices=Role.choices)
+    status = models.CharField(
+        max_length=20,
+        choices=InviteStatus.choices,
+        default=InviteStatus.INVITED
+    )
+
+    invited_at = models.DateTimeField(auto_now_add=True)
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    deactivated_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'corporate_workers'
+        verbose_name = 'Corporate Worker'
+        verbose_name_plural = 'Corporate Workers'
+        unique_together = ['corporate_profile', 'email']
+        indexes = [
+            models.Index(fields=['corporate_profile']),
+            models.Index(fields=['user']),
+            models.Index(fields=['role']),
+        ]
+
+    def __str__(self):
+        return f"{self.name or self.email} ({self.get_role_display()}) @ {self.corporate_profile.company_name}"
 
 
 # Import verification models at the end to avoid circular imports 

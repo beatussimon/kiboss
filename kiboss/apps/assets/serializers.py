@@ -110,6 +110,7 @@ class AssetListSerializer(serializers.ModelSerializer):
         source='get_verification_status_display', read_only=True
     )
     is_verified = serializers.SerializerMethodField()
+    owner_verification_badge = serializers.SerializerMethodField()
     photos = AssetPhotoSerializer(many=True, read_only=True)
     pricing_rules = AssetPricingSerializer(many=True, read_only=True)
     
@@ -117,7 +118,7 @@ class AssetListSerializer(serializers.ModelSerializer):
         model = Asset
         fields = [
             'id', 'name', 'description', 'asset_type',
-            'owner', 'owner_email',
+            'owner', 'owner_email', 'owner_verification_badge',
             'city', 'state', 'country',
             'verification_status', 'verification_status_display', 'is_verified',
             'is_active', 'is_listed',
@@ -129,6 +130,12 @@ class AssetListSerializer(serializers.ModelSerializer):
     
     def get_is_verified(self, obj):
         return obj.verification_status == 'VERIFIED'
+    
+    def get_owner_verification_badge(self, obj):
+        """Return the asset owner's verification badge (tier + color)."""
+        if obj.owner:
+            return obj.owner.verification_badge
+        return {'tier': 'none', 'color': None}
     
     def to_representation(self, instance):
         """Optimize photos query by using prefetched data."""

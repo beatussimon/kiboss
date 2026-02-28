@@ -5,7 +5,7 @@ from rest_framework import viewsets, status, filters, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied, ValidationError
-from django.db.models import Avg
+from django.db.models import Avg, Case, When, Value, FloatField, Q, Subquery, OuterRef, Exists
 from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
 from kiboss.apps.assets.models import Asset, AssetPhoto, AssetPricing, AssetAvailability, AssetType, VerificationStatus
@@ -14,6 +14,7 @@ from kiboss.apps.assets.serializers import (
     AssetPhotoSerializer, AssetPricingSerializer, AssetAvailabilitySerializer
 )
 from kiboss.apps.tasks.models import StaffTask, TaskType, TaskStatus, TaskPriority
+from kiboss.apps.users.models import CorporateProfile
 
 
 class AssetViewSet(viewsets.ModelViewSet):
@@ -121,13 +122,17 @@ class AssetViewSet(viewsets.ModelViewSet):
                 if vehicle_count >= 1:
                     raise PermissionDenied("Regular users are limited to listing a single vehicle. Please register as a Corporate Ride Business to add a fleet.")
             
-            serializer.save(
+            asset = serializer.save(
                 owner=user,
                 verification_status=VerificationStatus.PENDING,
                 is_corporate=is_verified_corporate,
-                is_active=True,
                 is_listed=False
             )
+            
+            # ALWAYS require staff verification for a new vehicle
+            from kiboss.apps.common.services import VerificationService
+            VerificationService.request_verification(asset, user)
+            return
         else:
             # Other assets auto-verified for now
             serializer.save(
@@ -156,18 +161,36 @@ class AssetViewSet(viewsets.ModelViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
     
     def get_queryset(self):
-        queryset = Asset.objects.select_related('owner', 'verified_by').prefetch_related(
+        from kiboss.apps.users.models import CorporateProfile
+        has_verified_corp = Exists(
+            CorporateProfile.objects.filter(
+                user_id=OuterRef('owner_id'),
+                verification_status='VERIFIED'
+            )
+        )
+        
+        queryset = Asset.objects.select_related(
+            'owner', 'verified_by'
+        ).prefetch_related(
             'photos',
             'pricing_rules',
             'availability_rules',
             'capacities',
-        ).order_by('-created_at')
+            'owner__corporate_profile',
+        ).annotate(
+            visibility_boost=Case(
+                When(has_verified_corp, then=Value(2.0)),
+                When(owner__account_tier='PLUS', then=Value(1.5)),
+                default=Value(1.0),
+                output_field=FloatField(),
+            )
+        ).order_by('-visibility_boost', '-average_rating', '-created_at')
         
         # Filter by asset type
         asset_type = self.request.query_params.get('asset_type')
         if asset_type:
             queryset = queryset.filter(asset_type=asset_type)
-        
+            
         # Filter by owner
         owner_id = self.request.query_params.get('owner')
         if owner_id == 'me':

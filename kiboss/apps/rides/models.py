@@ -81,6 +81,16 @@ class Ride(models.Model):
         blank=True
     )
     
+    # Assigned corporate driver (for fleet-managed rides)
+    assigned_driver = models.ForeignKey(
+        'users.CorporateWorker',
+        on_delete=models.SET_NULL,
+        related_name='assigned_rides',
+        null=True,
+        blank=True,
+        help_text='Corporate worker assigned as driver for this ride'
+    )
+    
     # Status
     status = models.CharField(
         max_length=20,

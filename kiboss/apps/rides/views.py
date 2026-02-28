@@ -17,6 +17,9 @@ from kiboss.apps.assets.serializers import AssetSerializer
 from kiboss.apps.tasks.models import StaffTask, TaskType, TaskPriority, TaskStatus
 from django.contrib.contenttypes.models import ContentType
 from kiboss.apps.common.locking import get_lock_manager, LockAcquisitionError
+from kiboss.apps.users.models import CorporateWorker
+from rest_framework.exceptions import PermissionDenied, ValidationError as DRFValidationError
+from django.db.models import Count, Q
 
 
 class VehicleRegistrationViewSet(viewsets.ModelViewSet):
@@ -126,14 +129,13 @@ class RideViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         """
-        Set the driver to the current user and ensure they have a verified vehicle.
-        This enforces the verification workflow.
+        Set the driver to the current user and enforce fleet rules for BUSINESS rides.
         """
         user = self.request.user
+        ride_type = serializer.validated_data.get('ride_type', 'PERSONAL')
         
-        # Check Business Isolation
+        # Check Business Isolation: ASSET businesses cannot offer rides
         if hasattr(user, 'corporate_profile') and user.corporate_profile.business_category == 'ASSET':
-            from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("Asset businesses cannot offer rides. Register an individual or Ride Business account.")
         
         # Check if user has at least one verified vehicle asset
@@ -144,13 +146,41 @@ class RideViewSet(viewsets.ModelViewSet):
         ).exists()
         
         if not has_verified_vehicle and not user.is_superuser:
-            from rest_framework.exceptions import ValidationError
-            raise ValidationError({
+            raise DRFValidationError({
                 'error': 'Vehicle verification required',
                 'message': 'You must have a verified vehicle to offer a ride. Please register your vehicle first.'
             })
+        
+        extra_kwargs = {'driver': user}
+        
+        # FLEET ENFORCEMENT for BUSINESS rides
+        if ride_type == 'BUSINESS':
+            if not hasattr(user, 'corporate_profile') or user.corporate_profile.verification_status != 'VERIFIED':
+                raise PermissionDenied("Only verified corporate ride businesses can create business rides.")
             
-        serializer.save(driver=user)
+            # Vehicle must belong to the corporate fleet
+            vehicle_asset = serializer.validated_data.get('vehicle_asset')
+            if vehicle_asset:
+                if vehicle_asset.owner != user:
+                    raise PermissionDenied("Vehicle must be from your corporate fleet.")
+                if vehicle_asset.verification_status != VerificationStatus.VERIFIED:
+                    raise DRFValidationError({'vehicle_asset': 'Vehicle must be verified before dispatching a trip.'})
+            
+            # If assigned_driver is specified, validate it's a DRIVER worker on this profile
+            assigned_driver_id = self.request.data.get('assigned_driver')
+            if assigned_driver_id:
+                try:
+                    worker = CorporateWorker.objects.get(
+                        id=assigned_driver_id,
+                        corporate_profile=user.corporate_profile,
+                        role='DRIVER',
+                        status='ACTIVE'
+                    )
+                    extra_kwargs['assigned_driver'] = worker
+                except CorporateWorker.DoesNotExist:
+                    raise DRFValidationError({'assigned_driver': 'Invalid or inactive driver.'})
+        
+        serializer.save(**extra_kwargs)
     
     def get_queryset(self):
         queryset = Ride.objects.select_related('driver', 'vehicle_asset').prefetch_related('stops').order_by('-departure_time')
@@ -186,6 +216,56 @@ class RideViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(departure_time__date__lte=date_to)
         
         return queryset
+    
+    @action(detail=False, methods=['get'])
+    def fleet_stats(self, request):
+        """Get fleet statistics for the current corporate user."""
+        user = request.user
+        if not hasattr(user, 'corporate_profile') or user.corporate_profile.verification_status != 'VERIFIED':
+            return Response({'error': 'Verified corporate profile required.'}, status=status.HTTP_403_FORBIDDEN)
+        
+        # Vehicle count (verified fleet)
+        vehicle_count = Asset.objects.filter(
+            owner=user,
+            asset_type=AssetType.VEHICLE,
+            verification_status=VerificationStatus.VERIFIED
+        ).count()
+        
+        # Active trips (SCHEDULED, OPEN, DEPARTED, IN_TRANSIT)
+        active_trips = Ride.objects.filter(
+            driver=user,
+            ride_type='BUSINESS',
+            status__in=['SCHEDULED', 'OPEN', 'DEPARTED', 'IN_TRANSIT']
+        ).count()
+        
+        # Completed trips (all time)
+        completed_trips = Ride.objects.filter(
+            driver=user,
+            ride_type='BUSINESS',
+            status='COMPLETED'
+        ).count()
+        
+        # Total completed seat bookings across all trips
+        total_passengers = SeatBooking.objects.filter(
+            ride__driver=user,
+            ride__ride_type='BUSINESS',
+            status='COMPLETED'
+        ).count()
+        
+        # Active drivers from CorporateWorker
+        driver_count = CorporateWorker.objects.filter(
+            corporate_profile=user.corporate_profile,
+            role='DRIVER',
+            status='ACTIVE'
+        ).count()
+        
+        return Response({
+            'vehicle_count': vehicle_count,
+            'active_trips': active_trips,
+            'completed_trips': completed_trips,
+            'total_passengers': total_passengers,
+            'driver_count': driver_count,
+        })
     
     @action(detail=True, methods=['post'])
     def add_stop(self, request, pk=None):

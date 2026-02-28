@@ -8,8 +8,8 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
-from .models import User, UserProfile, CorporateProfile, BusinessSubscription
-from .serializers import UserWithProfileSerializer, UserProfileSerializer, PublicUserSerializer, UserSerializer
+from .models import User, UserProfile, CorporateProfile, BusinessSubscription, CorporateWorker
+from .serializers import UserWithProfileSerializer, UserProfileSerializer, PublicUserSerializer, UserSerializer, CorporateWorkerSerializer
 from kiboss.apps.tasks.models import StaffTask, TaskType, TaskStatus, TaskPriority
 from kiboss.apps.core.models import SystemConfiguration
 from django.contrib.contenttypes.models import ContentType
@@ -44,6 +44,13 @@ class CorporateRegistrationView(APIView):
     
     def post(self, request):
         user = request.user
+        
+        # Check Staff Isolation
+        if user.is_staff:
+            return Response(
+                {'error': 'Staff members cannot create Corporate Profiles.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
         
         # Check if already registered
         if hasattr(user, 'corporate_profile'):
@@ -420,9 +427,117 @@ class VerifyEmailView(APIView):
         ).last()
 
         if not verification:
-            return Response({'error': 'No pending email verification found'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({'error': 'Invalid or expired verification code.'}, status=status.HTTP_400_BAD_REQUEST)
         
         success, message = verification.verify_code(code)
         if success:
             return Response({'message': message}, status=status.HTTP_200_OK)
         return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class CorporateWorkerViewSet(APIView):
+    """
+    API endpoint for managing corporate workers.
+    GET: List all workers for the current corporate profile.
+    POST: Invite a new worker.
+    PATCH: Update a worker (role or status).
+    DELETE: Deactivate a worker.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def _get_corporate_profile(self, user):
+        """Get verified corporate profile or raise error."""
+        if not hasattr(user, 'corporate_profile'):
+            return None
+        cp = user.corporate_profile
+        if cp.verification_status != 'VERIFIED':
+            return None
+        return cp
+
+    def get(self, request):
+        """List workers for the current corporate profile."""
+        cp = self._get_corporate_profile(request.user)
+        if not cp:
+            return Response({'error': 'Verified corporate profile required.'}, status=status.HTTP_403_FORBIDDEN)
+        
+        workers = CorporateWorker.objects.filter(corporate_profile=cp).select_related('user').order_by('-created_at')
+        serializer = CorporateWorkerSerializer(workers, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        """Invite a new worker."""
+        cp = self._get_corporate_profile(request.user)
+        if not cp:
+            return Response({'error': 'Verified corporate profile required.'}, status=status.HTTP_403_FORBIDDEN)
+        
+        serializer = CorporateWorkerSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        email = serializer.validated_data['email']
+        
+        # Check if worker already exists
+        if CorporateWorker.objects.filter(corporate_profile=cp, email=email).exists():
+            return Response({'error': 'Worker with this email already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Auto-link if user with this email exists in the system
+        linked_user = User.objects.filter(email=email).first()
+        worker_status = CorporateWorker.InviteStatus.ACTIVE if linked_user else CorporateWorker.InviteStatus.INVITED
+        
+        worker = serializer.save(
+            corporate_profile=cp,
+            user=linked_user,
+            status=worker_status,
+            accepted_at=timezone.now() if linked_user else None
+        )
+        
+        return Response(CorporateWorkerSerializer(worker).data, status=status.HTTP_201_CREATED)
+
+    def patch(self, request):
+        """Update a worker's role or status."""
+        cp = self._get_corporate_profile(request.user)
+        if not cp:
+            return Response({'error': 'Verified corporate profile required.'}, status=status.HTTP_403_FORBIDDEN)
+        
+        worker_id = request.data.get('worker_id')
+        if not worker_id:
+            return Response({'error': 'worker_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            worker = CorporateWorker.objects.get(id=worker_id, corporate_profile=cp)
+        except CorporateWorker.DoesNotExist:
+            return Response({'error': 'Worker not found.'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Update role if provided
+        new_role = request.data.get('role')
+        if new_role and new_role in [r[0] for r in CorporateWorker.Role.choices]:
+            worker.role = new_role
+        
+        # Update status if provided
+        new_status = request.data.get('status')
+        if new_status == 'DEACTIVATED':
+            worker.status = CorporateWorker.InviteStatus.DEACTIVATED
+            worker.deactivated_at = timezone.now()
+        elif new_status == 'ACTIVE':
+            worker.status = CorporateWorker.InviteStatus.ACTIVE
+            worker.deactivated_at = None
+        
+        worker.save()
+        return Response(CorporateWorkerSerializer(worker).data)
+
+    def delete(self, request):
+        """Remove a worker entirely."""
+        cp = self._get_corporate_profile(request.user)
+        if not cp:
+            return Response({'error': 'Verified corporate profile required.'}, status=status.HTTP_403_FORBIDDEN)
+        
+        worker_id = request.query_params.get('worker_id')
+        if not worker_id:
+            return Response({'error': 'worker_id query param is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            worker = CorporateWorker.objects.get(id=worker_id, corporate_profile=cp)
+        except CorporateWorker.DoesNotExist:
+            return Response({'error': 'Worker not found.'}, status=status.HTTP_404_NOT_FOUND)
+        
+        worker.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

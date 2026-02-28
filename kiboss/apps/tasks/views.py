@@ -222,6 +222,14 @@ class StaffTaskViewSet(viewsets.ModelViewSet):
         action_type = serializer.validated_data['action']
         notes = serializer.validated_data.get('notes', '')
         
+        # Prevent self-approval
+        if task.created_by == request.user or (task.content_type.model == 'corporateprofile' and hasattr(task.content_object, 'user') and task.content_object.user == request.user):
+            if action_type in ['APPROVE', 'COMPLETED', 'SUBMIT_COMPLETION']:
+                return Response(
+                    {'error': 'You cannot approve or complete your own verification tasks.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
         # Verify the user has the role required for this task
         if not request.user.is_superuser:
             role_required = task.assigned_role

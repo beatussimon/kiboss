@@ -7,7 +7,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import User, UserProfile, CorporateProfile
+from .models import User, UserProfile, CorporateProfile, CorporateWorker
 
 
 class CorporateProfileSerializer(serializers.ModelSerializer):
@@ -15,6 +15,28 @@ class CorporateProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = CorporateProfile
         fields = ['id', 'company_name', 'registration_number', 'tax_id', 'verification_status', 'business_category', 'created_at']
+
+
+class CorporateWorkerSerializer(serializers.ModelSerializer):
+    """Serializer for CorporateWorker model."""
+    role_display = serializers.CharField(source='get_role_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    user_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CorporateWorker
+        fields = [
+            'id', 'email', 'name', 'role', 'role_display',
+            'status', 'status_display', 'user', 'user_name',
+            'invited_at', 'accepted_at', 'deactivated_at',
+            'created_at'
+        ]
+        read_only_fields = ['id', 'user', 'user_name', 'invited_at', 'accepted_at', 'deactivated_at', 'created_at']
+
+    def get_user_name(self, obj):
+        if obj.user:
+            return obj.user.get_full_name()
+        return obj.name or obj.email
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -49,14 +71,14 @@ class UserWithProfileSerializer(serializers.ModelSerializer):
             'id', 'email', 'first_name', 'last_name',
             'is_email_verified', 'is_phone_verified', 'is_identity_verified',
             'trust_score', 'total_ratings_count', 'is_blocked',
-            'verification_tier', 'verification_badge',
+            'account_tier', 'verification_tier', 'verification_badge',
             'is_staff', 'is_superuser',
             'profile', 'corporate_profile', 'roles', 'permissions',
         ]
         read_only_fields = [
             'id', 'is_email_verified', 'is_phone_verified', 'is_identity_verified', 
             'trust_score', 'total_ratings_count', 'is_blocked', 
-            'verification_badge', 'roles', 'permissions', 'is_staff', 'is_superuser',
+            'account_tier', 'verification_badge', 'roles', 'permissions', 'is_staff', 'is_superuser',
             'corporate_profile'
         ]
     
@@ -91,14 +113,14 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'email', 'first_name', 'last_name',
             'is_email_verified', 'is_phone_verified', 'is_identity_verified',
             'trust_score', 'total_ratings_count', 'is_blocked',
-            'verification_tier', 'verification_badge',
+            'account_tier', 'verification_tier', 'verification_badge',
             'is_staff', 'is_superuser',
             'roles', 'permissions', 'profile', 'corporate_profile',
         ]
         read_only_fields = [
             'id', 'is_email_verified', 'is_phone_verified', 'is_identity_verified', 
             'trust_score', 'total_ratings_count', 'is_blocked', 
-            'verification_badge', 'roles', 'permissions', 'is_staff', 'is_superuser', 
+            'account_tier', 'verification_badge', 'roles', 'permissions', 'is_staff', 'is_superuser', 
             'profile', 'corporate_profile'
         ]
     
