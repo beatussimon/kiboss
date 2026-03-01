@@ -541,3 +541,63 @@ class CorporateWorkerViewSet(APIView):
         
         worker.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class TierListView(APIView):
+    """GET /api/v1/users/tiers/ - List all available tiers with features."""
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        from kiboss.apps.users.tier_service import get_all_tiers
+        tiers = get_all_tiers()
+        return Response(tiers)
+
+
+class UpgradeView(APIView):
+    """POST /api/v1/users/upgrade/ - Upgrade user's account tier."""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        from kiboss.apps.users.tier_service import get_tier_features
+        
+        tier = request.data.get('tier')
+        if tier not in ('PLUS', 'BUSINESS'):
+            return Response(
+                {'error': 'Invalid tier. Must be PLUS or BUSINESS'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        user = request.user
+        
+        # Check current tier
+        tier_order = {'FREE': 0, 'PLUS': 1, 'BUSINESS': 2}
+        current_level = tier_order.get(user.account_tier, 0)
+        target_level = tier_order.get(tier, 0)
+        
+        if target_level <= current_level:
+            return Response(
+                {'error': f'Cannot downgrade or stay at current tier ({user.account_tier})'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # For BUSINESS tier, require corporate profile
+        if tier == 'BUSINESS':
+            if not hasattr(user, 'corporate_profile'):
+                return Response(
+                    {'error': 'Business tier requires a corporate profile. Register your business first.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Upgrade the tier (payment will be handled by ZenoPay integration)
+        user.account_tier = tier
+        user.save(update_fields=['account_tier', 'updated_at'])
+        
+        features = get_tier_features(tier)
+        serializer = UserWithProfileSerializer(user)
+        
+        return Response({
+            'message': f'Successfully upgraded to {tier} tier',
+            'tier': tier,
+            'features': features,
+            'user': serializer.data
+        })

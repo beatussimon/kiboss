@@ -150,12 +150,13 @@ class User(AbstractUser):
     class AccountTier(models.TextChoices):
         FREE = 'FREE', 'Free Tier'
         PLUS = 'PLUS', 'Plus Tier'
+        BUSINESS = 'BUSINESS', 'Business Tier'
         
     account_tier = models.CharField(
         max_length=20,
         choices=AccountTier.choices,
         default=AccountTier.FREE,
-        help_text="User subscription tier (Corporate is determined by CorporateProfile)"
+        help_text="User subscription tier (FREE, PLUS, or BUSINESS)"
     )
     
     # Verification tier (manual override for special users)

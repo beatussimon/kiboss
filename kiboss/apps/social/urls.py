@@ -1,10 +1,12 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from kiboss.apps.social.views import LikeViewSet, FollowViewSet
+from kiboss.apps.social.views import LikeViewSet, FollowViewSet, BookmarkViewSet, EngagementView
 
 router = DefaultRouter()
 router.register(r'likes', LikeViewSet, basename='like')
 router.register(r'follows', FollowViewSet, basename='follow')
+router.register(r'bookmarks', BookmarkViewSet, basename='bookmark')
+router.register(r'engagement', EngagementView, basename='engagement')
 
 urlpatterns = [
     path('', include(router.urls)),
