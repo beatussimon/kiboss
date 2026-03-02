@@ -104,7 +104,11 @@ class VerificationService:
                 entity.verified_at = timezone.now()
                 entity.verified_by = reviewer
                 entity.verification_notes = notes
-                entity.is_listed = True
+                
+                # Vehicles registered for rides shouldn't be auto-listed on the rental marketplace
+                if entity.asset_type != AssetType.VEHICLE:
+                    entity.is_listed = True
+                    
                 entity.save()
             elif isinstance(entity, CorporateProfile):
                 entity.verification_status = 'VERIFIED'

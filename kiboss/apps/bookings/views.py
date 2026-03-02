@@ -122,7 +122,9 @@ class BookingViewSet(viewsets.ViewSet):
                 start_time=serializer.validated_data['start_time'],
                 end_time=serializer.validated_data['end_time'],
                 quantity=serializer.validated_data.get('quantity', 1),
-                notes=serializer.validated_data.get('notes', '')
+                notes=serializer.validated_data.get('notes', ''),
+                driver_license_number=serializer.validated_data.get('driver_license_number'),
+                driving_experience_years=serializer.validated_data.get('driving_experience_years')
             )
             
             # Return full booking details

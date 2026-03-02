@@ -192,7 +192,8 @@ class BookingService:
     
     @classmethod
     def create_booking(cls, renter, asset_id, start_time, end_time, 
-                      quantity=1, notes='', payment_method=None):
+                      quantity=1, notes='', payment_method=None,
+                      driver_license_number=None, driving_experience_years=None):
         """
         Create a new booking with Redis locking.
         
@@ -252,6 +253,11 @@ class BookingService:
             if not is_available:
                 raise AvailabilityError(info.get("error", "Asset not available"))
             
+            # If asset is a vehicle, require qualifications
+            if asset.asset_type == 'VEHICLE':
+                if not driver_license_number or driving_experience_years is None:
+                    raise BookingError("Driver's License details and Driving Experience are required when booking a vehicle.")
+            
             # Calculate price
             price_breakdown = cls.calculate_price(
                 asset_id, quantity, start_time, end_time
@@ -259,6 +265,13 @@ class BookingService:
             
             # Create booking in transaction
             with transaction.atomic():
+                metadata = {}
+                if asset.asset_type == 'VEHICLE':
+                    metadata['qualifications'] = {
+                        'license': driver_license_number,
+                        'experience': driving_experience_years
+                    }
+
                 booking = Booking.objects.create(
                     renter=renter,
                     asset=asset,
@@ -273,7 +286,8 @@ class BookingService:
                     total_price=price_breakdown["total"],
                     price_breakdown=cls._json_safe(price_breakdown),
                     renter_notes=notes,
-                    grace_period_minutes=cls.DEFAULT_GRACE_PERIOD_MINUTES
+                    grace_period_minutes=cls.DEFAULT_GRACE_PERIOD_MINUTES,
+                    metadata=metadata
                 )
                 
                 # Log timeline event

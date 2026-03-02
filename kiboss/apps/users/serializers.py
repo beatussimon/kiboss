@@ -22,6 +22,7 @@ class CorporateWorkerSerializer(serializers.ModelSerializer):
     role_display = serializers.CharField(source='get_role_display', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     user_name = serializers.SerializerMethodField()
+    email = serializers.EmailField(required=False, allow_blank=True)
 
     class Meta:
         model = CorporateWorker

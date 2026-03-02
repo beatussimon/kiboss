@@ -48,11 +48,32 @@ class VehicleRegistrationViewSet(viewsets.ModelViewSet):
         serializer = AssetSerializer(data=data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         
+        # Check if user has a verified corporate profile
+        is_verified_corporate = False
+        if hasattr(request.user, 'corporate_profile') and request.user.corporate_profile.verification_status == 'VERIFIED':
+            is_verified_corporate = True
+            
+        if not is_verified_corporate:
+            # Regular users are limited by their tier
+            vehicle_count = Asset.objects.filter(
+                owner=request.user, 
+                asset_type=AssetType.VEHICLE
+            ).exclude(is_active=False, is_listed=False).count()
+            
+            VEHICLE_LIMITS = {'FREE': 1, 'PLUS': 3}
+            max_vehicles = VEHICLE_LIMITS.get(request.user.account_tier, 1)
+            
+            if vehicle_count >= max_vehicles:
+                raise PermissionDenied(f"Your {request.user.account_tier} plan allows you to register up to {max_vehicles} vehicle(s). Upgrade to Plus or register as a Corporate Ride Business to add more.")
+        
         with transaction.atomic():
             asset = serializer.save(
                 owner=request.user, 
                 asset_type=AssetType.VEHICLE, 
-                verification_status=VerificationStatus.PENDING
+                verification_status=VerificationStatus.PENDING,
+                is_corporate=is_verified_corporate,
+                is_listed=False,
+                is_active=True
             )
             
             # 2. Handle documents
@@ -134,9 +155,29 @@ class RideViewSet(viewsets.ModelViewSet):
         user = self.request.user
         ride_type = serializer.validated_data.get('ride_type', 'PERSONAL')
         
+        if user.is_staff and not user.is_superuser:
+            raise PermissionDenied("Staff accounts cannot offer rides. Use a personal account or request superadmin access.")
+        
+        # Enforce Ride Limits
+        if ride_type != 'BUSINESS':
+            RIDE_LIMITS = {'FREE': 1, 'PLUS': 10}
+            max_rides = RIDE_LIMITS.get(user.account_tier, float('inf'))
+            if max_rides != float('inf'):
+                active_rides = Ride.objects.filter(
+                    driver=user, status__in=['SCHEDULED', 'OPEN']
+                ).count()
+                if active_rides >= max_rides:
+                    raise PermissionDenied(f"Your {user.account_tier} plan allows up to {max_rides} active rides. Upgrade or remove existing rides.")
+        
         # Check Business Isolation: ASSET businesses cannot offer rides
-        if hasattr(user, 'corporate_profile') and user.corporate_profile.business_category == 'ASSET':
-            raise PermissionDenied("Asset businesses cannot offer rides. Register an individual or Ride Business account.")
+        if hasattr(user, 'corporate_profile'):
+            if user.corporate_profile.business_category == 'ASSET':
+                raise PermissionDenied("Asset businesses cannot offer rides. Register an individual or Ride Business account.")
+            
+            # Corporate Ride accounts constraints
+            if user.corporate_profile.verification_status == 'VERIFIED' and user.account_tier == 'BUSINESS':
+                if ride_type == 'PERSONAL':
+                    raise PermissionDenied("Corporate Ride accounts can only offer BUSINESS rides. Switch to a personal account to offer personal rides.")
         
         # Check if user has at least one verified vehicle asset
         has_verified_vehicle = Asset.objects.filter(
@@ -157,6 +198,9 @@ class RideViewSet(viewsets.ModelViewSet):
         if ride_type == 'BUSINESS':
             if not hasattr(user, 'corporate_profile') or user.corporate_profile.verification_status != 'VERIFIED':
                 raise PermissionDenied("Only verified corporate ride businesses can create business rides.")
+            
+            if user.account_tier != 'BUSINESS':
+                raise PermissionDenied("Your business subscription is inactive/expired. Please renew to offer business rides.")
             
             # Vehicle must belong to the corporate fleet
             vehicle_asset = serializer.validated_data.get('vehicle_asset')
@@ -214,6 +258,11 @@ class RideViewSet(viewsets.ModelViewSet):
         date_to = self.request.query_params.get('date_to')
         if date_to:
             queryset = queryset.filter(departure_time__date__lte=date_to)
+
+        # Filter by ride_type / context
+        ride_type_param = self.request.query_params.get('ride_type')
+        if ride_type_param:
+            queryset = queryset.filter(ride_type=ride_type_param)
         
         return queryset
     

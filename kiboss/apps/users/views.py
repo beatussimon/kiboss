@@ -465,32 +465,71 @@ class CorporateWorkerViewSet(APIView):
         return Response(serializer.data)
 
     def post(self, request):
-        """Invite a new worker."""
+        """Create a new worker directly."""
         cp = self._get_corporate_profile(request.user)
         if not cp:
             return Response({'error': 'Verified corporate profile required.'}, status=status.HTTP_403_FORBIDDEN)
         
-        serializer = CorporateWorkerSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        data = request.data.copy()
         
-        email = serializer.validated_data['email']
+        import uuid
+        import string
+        import random
+        
+        # Determine email
+        email = data.get('email', '').strip()
+        generated_email = False
+        if not email:
+            email = f"worker_{uuid.uuid4().hex[:8]}@{cp.id.hex[:8]}.kiboss.local"
+            data['email'] = email
+            generated_email = True
+            
+        serializer = CorporateWorkerSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
         
         # Check if worker already exists
         if CorporateWorker.objects.filter(corporate_profile=cp, email=email).exists():
             return Response({'error': 'Worker with this email already exists.'}, status=status.HTTP_400_BAD_REQUEST)
         
-        # Auto-link if user with this email exists in the system
-        linked_user = User.objects.filter(email=email).first()
-        worker_status = CorporateWorker.InviteStatus.ACTIVE if linked_user else CorporateWorker.InviteStatus.INVITED
-        
-        worker = serializer.save(
-            corporate_profile=cp,
-            user=linked_user,
-            status=worker_status,
-            accepted_at=timezone.now() if linked_user else None
-        )
-        
-        return Response(CorporateWorkerSerializer(worker).data, status=status.HTTP_201_CREATED)
+        # Determine password
+        password = data.get('password', '').strip()
+        generated_password = False
+        if not password:
+            chars = string.ascii_letters + string.digits
+            password = ''.join(random.choice(chars) for _ in range(8))
+            generated_password = True
+            
+        with transaction.atomic():
+            linked_user = User.objects.filter(email=email).first()
+            if not linked_user:
+                full_name = data.get('name', '').strip()
+                first_name = full_name.split()[0] if full_name else 'Fleet'
+                last_name = ' '.join(full_name.split()[1:]) if len(full_name.split()) > 1 else 'Worker'
+                
+                linked_user = User.objects.create_user(
+                    email=email,
+                    password=password,
+                    first_name=first_name,
+                    last_name=last_name
+                )
+                linked_user.is_email_verified = True
+                linked_user.save()
+                
+            worker = serializer.save(
+                corporate_profile=cp,
+                user=linked_user,
+                status=CorporateWorker.InviteStatus.ACTIVE,
+                accepted_at=timezone.now()
+            )
+            
+        response_data = CorporateWorkerSerializer(worker).data
+        if generated_email or generated_password:
+            response_data['credentials'] = {
+                'email': email,
+                'password': password
+            }
+            
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
     def patch(self, request):
         """Update a worker's role or status."""
@@ -600,4 +639,50 @@ class UpgradeView(APIView):
             'tier': tier,
             'features': features,
             'user': serializer.data
+        })
+
+class WorkerPasswordResetView(APIView):
+    """
+    API endpoint for resetting a worker's password.
+    POST: Reset password for a specific worker.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if not hasattr(request.user, 'corporate_profile') or request.user.corporate_profile.verification_status != 'VERIFIED':
+            return Response({'error': 'Verified corporate profile required.'}, status=status.HTTP_403_FORBIDDEN)
+            
+        cp = request.user.corporate_profile
+        worker_id = request.data.get('worker_id')
+        new_password = request.data.get('new_password', '').strip()
+        
+        if not worker_id:
+            return Response({'error': 'worker_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        try:
+            worker = CorporateWorker.objects.get(id=worker_id, corporate_profile=cp)
+        except CorporateWorker.DoesNotExist:
+            return Response({'error': 'Worker not found.'}, status=status.HTTP_404_NOT_FOUND)
+            
+        if not worker.user:
+            return Response({'error': 'This worker does not have an active system account.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        import string
+        import random
+        
+        if not new_password:
+            chars = string.ascii_letters + string.digits
+            new_password = ''.join(random.choice(chars) for _ in range(8))
+            
+        with transaction.atomic():
+            worker.user.set_password(new_password)
+            worker.user.save()
+            
+        return Response({
+            'status': 'success',
+            'message': 'Password reset successful.',
+            'credentials': {
+                'email': worker.user.email,
+                'password': new_password
+            }
         })

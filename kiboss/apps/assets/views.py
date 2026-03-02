@@ -43,6 +43,35 @@ class AssetViewSet(viewsets.ModelViewSet):
         asset_type = serializer.validated_data.get('asset_type')
         user = self.request.user
         
+        if user.is_staff and not user.is_superuser:
+            raise PermissionDenied("Staff accounts cannot create asset listings. Use a personal account or request superadmin access.")
+
+        # Check listing limits for non-child, non-vehicle assets
+        is_child = serializer.validated_data.get('parent') is not None
+        if not is_child and asset_type != AssetType.VEHICLE:
+            ASSET_LIMITS = {'FREE': 3, 'PLUS': 10}
+            max_assets = ASSET_LIMITS.get(user.account_tier, float('inf'))
+            if max_assets != float('inf'):
+                active_count = Asset.objects.filter(
+                    owner=user, is_active=True, parent__isnull=True
+                ).exclude(asset_type=AssetType.VEHICLE).count()
+                if active_count >= max_assets:
+                    raise PermissionDenied(f"Your {user.account_tier} plan allows up to {max_assets} asset listings. Upgrade to Plus or delete existing assets.")
+        
+        # CORPORATE GATE: Enforce Asset Business Profile Restrictions
+        if hasattr(user, 'corporate_profile') and user.corporate_profile.verification_status == 'VERIFIED' and user.account_tier == 'BUSINESS':
+            if user.corporate_profile.business_category == 'ASSET':
+                # Corporate Asset accounts should ideally list corporate properties.
+                # But they may have 'personal' items too. Ensure they don't abuse the unlimited 'BUSINESS' quota for personal junk.
+                context_mode = self.request.query_params.get('context') or self.request.data.get('context')
+                
+                # If they pass context=personal, they are trying to list an individual asset. 
+                # We enforce the FREE/PLUS limit on personal items in the next block implicitly if we temporarily fake tier? No, just block them explicitly if they try to bypass.
+                # Realistically, they should be acting in their business capacity here.
+                
+                if context_mode == 'personal' and not is_child and asset_type not in [AssetType.HOTEL, AssetType.RESTAURANT, AssetType.OFFICE_SPACE, AssetType.APARTMENT]:
+                    raise PermissionDenied("Corporate Asset accounts can only list corporate properties in unlimited capacity. Switch to a personal/free account to list personal items.")
+
         # CORPORATE GATE: Creating a Property (Hotel/Restaurant)
         if asset_type in [AssetType.HOTEL, AssetType.RESTAURANT]:
             # 1. Check if user has a Corporate Profile
@@ -113,14 +142,17 @@ class AssetViewSet(viewsets.ModelViewSet):
                 is_verified_corporate = True
                 
             if not is_verified_corporate:
-                # Regular users can only have 1 active/pending vehicle (exclude soft-deleted)
+                # Regular users are limited by their tier
                 vehicle_count = Asset.objects.filter(
                     owner=user, 
                     asset_type=AssetType.VEHICLE
                 ).exclude(is_active=False, is_listed=False).count()
                 
-                if vehicle_count >= 1:
-                    raise PermissionDenied("Regular users are limited to listing a single vehicle. Please register as a Corporate Ride Business to add a fleet.")
+                VEHICLE_LIMITS = {'FREE': 1, 'PLUS': 3}
+                max_vehicles = VEHICLE_LIMITS.get(user.account_tier, 1)
+                
+                if vehicle_count >= max_vehicles:
+                    raise PermissionDenied(f"Your {user.account_tier} plan allows you to register up to {max_vehicles} vehicle(s). Upgrade to Plus or register as a Corporate Ride Business to add more.")
             
             asset = serializer.save(
                 owner=user,
@@ -146,8 +178,19 @@ class AssetViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         asset = self.get_object()
-        if asset.owner_id != self.request.user.id and not self.request.user.is_superuser:
+        user = self.request.user
+        if asset.owner_id != user.id and not user.is_superuser:
             raise PermissionDenied('Only the asset owner can update this asset')
+            
+        # Vehicles can only be listed on the asset marketplace if the owner is on the BUSINESS plan
+        if asset.asset_type == AssetType.VEHICLE:
+            is_listed = serializer.validated_data.get('is_listed')
+            if is_listed:
+                if user.account_tier != 'BUSINESS':
+                    raise PermissionDenied('Only BUSINESS tier users can list vehicles for rent.')
+            else:
+                serializer.validated_data['is_listed'] = False
+            
         serializer.save()
 
     def destroy(self, request, *args, **kwargs):
@@ -214,7 +257,7 @@ class AssetViewSet(viewsets.ModelViewSet):
         
         # Filter by active/listed
         if self.action == 'list' and owner_id != 'me':
-            queryset = queryset.filter(is_active=True)
+            queryset = queryset.filter(is_active=True, is_listed=True, verification_status=VerificationStatus.VERIFIED)
             
         if self.action == 'retrieve':
             from django.db.models import Q
@@ -225,7 +268,7 @@ class AssetViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(is_active=True)
 
         is_active = self.request.query_params.get('is_active')
-        if is_active is not None:
+        if is_active is not None and is_active.lower() != 'any':
             queryset = queryset.filter(is_active=is_active.lower() == 'true')
         
         is_listed = self.request.query_params.get('is_listed')
@@ -236,6 +279,13 @@ class AssetViewSet(viewsets.ModelViewSet):
         min_rating = self.request.query_params.get('min_rating')
         if min_rating:
             queryset = queryset.filter(average_rating__gte=min_rating)
+
+        # Filter by context
+        context_param = self.request.query_params.get('context')
+        if context_param == 'personal':
+            queryset = queryset.filter(is_corporate=False)
+        elif context_param == 'corporate':
+            queryset = queryset.filter(is_corporate=True)
         
         return queryset
     

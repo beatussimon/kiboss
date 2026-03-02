@@ -86,12 +86,22 @@ class ThreadViewSet(viewsets.ModelViewSet):
             user=self.request.user, role=Role.SUPPORT
         ).exists()
 
+        participant_filter = Q(participants=self.request.user)
+        
+        # Add logic for Corporate Support Workers
+        if hasattr(self.request.user, 'corporate_worker') and self.request.user.corporate_worker.status == 'ACTIVE':
+            worker = self.request.user.corporate_worker
+            if worker.role == 'SUPPORT':
+                # Can see SUPPORT threads where their corporate profile is the owner
+                # Since thread is linked to user currently, the business owner is `worker.corporate_profile.user`
+                participant_filter |= Q(participants=worker.corporate_profile.user, thread_type=ThreadType.SUPPORT)
+
         if is_support_staff:
             queryset = queryset.filter(
-                Q(participants=self.request.user) | Q(thread_type=ThreadType.SUPPORT)
+                participant_filter | Q(thread_type=ThreadType.SUPPORT)
             ).distinct()
         else:
-            queryset = queryset.filter(participants=self.request.user)
+            queryset = queryset.filter(participant_filter).distinct()
         
         # Filter by thread type
         thread_type = self.request.query_params.get('thread_type')
@@ -146,9 +156,16 @@ class ThreadViewSet(viewsets.ModelViewSet):
             user=request.user, role=Role.SUPPORT
         ).exists()
         
+        is_corporate_support = False
+        if hasattr(request.user, 'corporate_worker') and request.user.corporate_worker.status == 'ACTIVE':
+            worker = request.user.corporate_worker
+            if worker.role == 'SUPPORT' and thread.thread_type == ThreadType.SUPPORT:
+                if worker.corporate_profile.user in thread.participants.all():
+                    is_corporate_support = True
+        
         is_authorized = (request.user in thread.participants.all()) or (
             is_support_staff and thread.thread_type == ThreadType.SUPPORT
-        )
+        ) or is_corporate_support
         
         if not is_authorized:
             return Response(
@@ -271,9 +288,16 @@ class ThreadViewSet(viewsets.ModelViewSet):
             user=request.user, role=Role.SUPPORT
         ).exists()
         
+        is_corporate_support = False
+        if hasattr(request.user, 'corporate_worker') and request.user.corporate_worker.status == 'ACTIVE':
+            worker = request.user.corporate_worker
+            if worker.role == 'SUPPORT' and thread.thread_type == ThreadType.SUPPORT:
+                if worker.corporate_profile.user in thread.participants.all():
+                    is_corporate_support = True
+        
         is_authorized = (request.user in thread.participants.all()) or (
             is_support_staff and thread.thread_type == ThreadType.SUPPORT
-        )
+        ) or is_corporate_support
         
         if not is_authorized:
             return Response(
@@ -626,9 +650,29 @@ class ThreadViewSet(viewsets.ModelViewSet):
     def read(self, request, pk=None):
         """Mark all unread messages in a thread as read for the current user."""
         thread = self.get_object()
-        if request.user not in thread.participants.all():
+        
+        # Determine authorization
+        from kiboss.apps.messaging.models import ThreadType
+        from kiboss.apps.rbac.models import UserRole, Role
+        
+        is_support_staff = request.user.is_superuser or UserRole.objects.filter(
+            user=request.user, role=Role.SUPPORT
+        ).exists()
+        
+        is_corporate_support = False
+        if hasattr(request.user, 'corporate_worker') and request.user.corporate_worker.status == 'ACTIVE':
+            worker = request.user.corporate_worker
+            if worker.role == 'SUPPORT' and thread.thread_type == ThreadType.SUPPORT:
+                if worker.corporate_profile.user in thread.participants.all():
+                    is_corporate_support = True
+                    
+        is_authorized = (request.user in thread.participants.all()) or (
+            is_support_staff and thread.thread_type == ThreadType.SUPPORT
+        ) or is_corporate_support
+        
+        if not is_authorized:
             return Response(
-                {'error': 'You are not a participant of this thread'},
+                {'error': 'You are not authorized to view/read this thread'},
                 status=status.HTTP_403_FORBIDDEN
             )
 
