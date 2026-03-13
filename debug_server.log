@@ -1,0 +1,346 @@
+INFO 2026-03-13 04:34:29,160 autoreload 297754 131750837063808 Watching for file changes with StatReloader
+INFO 2026-03-13 04:34:29,529 server 297754 131750765680320 HTTP/2 support not enabled (install the http2 and tls Twisted extras)
+INFO 2026-03-13 04:34:29,529 server 297754 131750765680320 HTTP/2 support not enabled (install the http2 and tls Twisted extras)
+INFO 2026-03-13 04:34:29,529 server 297754 131750765680320 Configuring endpoint tcp:port=8000:interface=127.0.0.1
+INFO 2026-03-13 04:34:29,529 server 297754 131750765680320 Configuring endpoint tcp:port=8000:interface=127.0.0.1
+INFO 2026-03-13 04:34:29,531 server 297754 131750765680320 Listening on TCP address 127.0.0.1:8000
+INFO 2026-03-13 04:34:29,531 server 297754 131750765680320 Listening on TCP address 127.0.0.1:8000
+INFO 2026-03-13 04:34:33,695 runserver 297754 131750765680320 WebSocket HANDSHAKING /ws/notifications/ [127.0.0.1:52272]
+DEBUG 2026-03-13 04:34:33,695 http_protocol 297754 131750765680320 Upgraded connection ['127.0.0.1', 52272] to WebSocket
+DEBUG 2026-03-13 04:34:33,695 http_protocol 297754 131750765680320 Upgraded connection ['127.0.0.1', 52272] to WebSocket
+DEBUG 2026-03-13 04:34:33,728 ws_protocol 297754 131750765680320 WebSocket ['127.0.0.1', 52272] open and established
+DEBUG 2026-03-13 04:34:33,728 ws_protocol 297754 131750765680320 WebSocket ['127.0.0.1', 52272] open and established
+INFO 2026-03-13 04:34:33,728 runserver 297754 131750765680320 WebSocket CONNECT /ws/notifications/ [127.0.0.1:52272]
+DEBUG 2026-03-13 04:34:33,729 ws_protocol 297754 131750765680320 WebSocket ['127.0.0.1', 52272] accepted by application
+DEBUG 2026-03-13 04:34:33,729 ws_protocol 297754 131750765680320 WebSocket ['127.0.0.1', 52272] accepted by application
+INFO 2026-03-13 04:37:41,921 autoreload 297754 131750837063808 /home/bea/kiboss/backend/kiboss/apps/bookings/serializers.py changed, reloading.
+INFO 2026-03-13 04:37:44,037 autoreload 297962 126299558514816 Watching for file changes with StatReloader
+INFO 2026-03-13 04:37:44,640 server 297962 126299487348416 HTTP/2 support not enabled (install the http2 and tls Twisted extras)
+INFO 2026-03-13 04:37:44,640 server 297962 126299487348416 HTTP/2 support not enabled (install the http2 and tls Twisted extras)
+INFO 2026-03-13 04:37:44,640 server 297962 126299487348416 Configuring endpoint tcp:port=8000:interface=127.0.0.1
+INFO 2026-03-13 04:37:44,640 server 297962 126299487348416 Configuring endpoint tcp:port=8000:interface=127.0.0.1
+INFO 2026-03-13 04:37:44,642 server 297962 126299487348416 Listening on TCP address 127.0.0.1:8000
+INFO 2026-03-13 04:37:44,642 server 297962 126299487348416 Listening on TCP address 127.0.0.1:8000
+INFO 2026-03-13 04:37:48,684 runserver 297962 126299487348416 WebSocket HANDSHAKING /ws/notifications/ [127.0.0.1:52802]
+DEBUG 2026-03-13 04:37:48,685 http_protocol 297962 126299487348416 Upgraded connection ['127.0.0.1', 52802] to WebSocket
+DEBUG 2026-03-13 04:37:48,685 http_protocol 297962 126299487348416 Upgraded connection ['127.0.0.1', 52802] to WebSocket
+DEBUG 2026-03-13 04:37:48,739 ws_protocol 297962 126299487348416 WebSocket ['127.0.0.1', 52802] open and established
+DEBUG 2026-03-13 04:37:48,739 ws_protocol 297962 126299487348416 WebSocket ['127.0.0.1', 52802] open and established
+INFO 2026-03-13 04:37:48,739 runserver 297962 126299487348416 WebSocket CONNECT /ws/notifications/ [127.0.0.1:52802]
+DEBUG 2026-03-13 04:37:48,739 ws_protocol 297962 126299487348416 WebSocket ['127.0.0.1', 52802] accepted by application
+DEBUG 2026-03-13 04:37:48,739 ws_protocol 297962 126299487348416 WebSocket ['127.0.0.1', 52802] accepted by application
+DEBUG 2026-03-13 04:38:19,564 ws_protocol 297962 126299487348416 WebSocket closed for ['127.0.0.1', 52802]
+DEBUG 2026-03-13 04:38:19,564 ws_protocol 297962 126299487348416 WebSocket closed for ['127.0.0.1', 52802]
+INFO 2026-03-13 04:38:19,569 runserver 297962 126299487348416 WebSocket DISCONNECT /ws/notifications/ [127.0.0.1:52802]
+DEBUG 2026-03-13 04:38:20,477 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56042]
+DEBUG 2026-03-13 04:38:20,477 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56042]
+DEBUG 2026-03-13 04:38:20,479 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56052]
+DEBUG 2026-03-13 04:38:20,479 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56052]
+DEBUG 2026-03-13 04:38:20,490 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56058]
+DEBUG 2026-03-13 04:38:20,490 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56058]
+DEBUG 2026-03-13 04:38:20,492 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56070]
+DEBUG 2026-03-13 04:38:20,492 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56070]
+DEBUG 2026-03-13 04:38:20,494 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56076]
+DEBUG 2026-03-13 04:38:20,494 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56076]
+DEBUG 2026-03-13 04:38:20,496 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56090]
+DEBUG 2026-03-13 04:38:20,496 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56090]
+DEBUG 2026-03-13 04:38:20,677 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56090]
+DEBUG 2026-03-13 04:38:20,677 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56090]
+DEBUG 2026-03-13 04:38:20,679 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56090]
+DEBUG 2026-03-13 04:38:20,679 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56090]
+DEBUG 2026-03-13 04:38:20,681 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56090]
+DEBUG 2026-03-13 04:38:20,681 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56090]
+INFO 2026-03-13 04:38:20,682 runserver 297962 126299487348416 [mHTTP GET /api/v1/users/me/ 200 [0.19, 127.0.0.1:56090][0m
+DEBUG 2026-03-13 04:38:20,706 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56076]
+DEBUG 2026-03-13 04:38:20,706 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56076]
+DEBUG 2026-03-13 04:38:20,710 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56076]
+DEBUG 2026-03-13 04:38:20,710 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56076]
+DEBUG 2026-03-13 04:38:20,712 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56076]
+DEBUG 2026-03-13 04:38:20,712 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56076]
+INFO 2026-03-13 04:38:20,715 runserver 297962 126299487348416 [mHTTP GET /api/v1/messaging/threads/unread_count/ 200 [0.22, 127.0.0.1:56076][0m
+DEBUG 2026-03-13 04:38:20,731 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56070]
+DEBUG 2026-03-13 04:38:20,731 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56070]
+DEBUG 2026-03-13 04:38:20,735 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56070]
+DEBUG 2026-03-13 04:38:20,735 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56070]
+DEBUG 2026-03-13 04:38:20,738 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56070]
+DEBUG 2026-03-13 04:38:20,738 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56070]
+INFO 2026-03-13 04:38:20,745 runserver 297962 126299487348416 [mHTTP GET /api/v1/notifications/ 200 [0.25, 127.0.0.1:56070][0m
+DEBUG 2026-03-13 04:38:20,856 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56058]
+DEBUG 2026-03-13 04:38:20,856 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56058]
+DEBUG 2026-03-13 04:38:20,862 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56058]
+DEBUG 2026-03-13 04:38:20,862 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56058]
+DEBUG 2026-03-13 04:38:20,864 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56058]
+DEBUG 2026-03-13 04:38:20,864 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56058]
+INFO 2026-03-13 04:38:20,865 runserver 297962 126299487348416 [mHTTP GET /api/v1/messaging/threads/ 200 [0.38, 127.0.0.1:56058][0m
+DEBUG 2026-03-13 04:38:20,999 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56104]
+DEBUG 2026-03-13 04:38:20,999 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56104]
+DEBUG 2026-03-13 04:38:21,032 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56110]
+DEBUG 2026-03-13 04:38:21,032 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56110]
+DEBUG 2026-03-13 04:38:21,091 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56120]
+DEBUG 2026-03-13 04:38:21,091 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56120]
+DEBUG 2026-03-13 04:38:21,151 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56104]
+DEBUG 2026-03-13 04:38:21,151 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56104]
+DEBUG 2026-03-13 04:38:21,152 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56104]
+DEBUG 2026-03-13 04:38:21,152 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56104]
+DEBUG 2026-03-13 04:38:21,155 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56104]
+DEBUG 2026-03-13 04:38:21,155 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56104]
+INFO 2026-03-13 04:38:21,157 runserver 297962 126299487348416 [mHTTP GET /api/v1/messaging/threads/unread_count/ 200 [0.16, 127.0.0.1:56104][0m
+INFO 2026-03-13 04:38:21,205 runserver 297962 126299487348416 WebSocket HANDSHAKING /ws/notifications/ [127.0.0.1:56128]
+DEBUG 2026-03-13 04:38:21,208 http_protocol 297962 126299487348416 Upgraded connection ['127.0.0.1', 56128] to WebSocket
+DEBUG 2026-03-13 04:38:21,208 http_protocol 297962 126299487348416 Upgraded connection ['127.0.0.1', 56128] to WebSocket
+DEBUG 2026-03-13 04:38:21,216 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56140]
+DEBUG 2026-03-13 04:38:21,216 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56140]
+DEBUG 2026-03-13 04:38:21,254 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56110]
+DEBUG 2026-03-13 04:38:21,254 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56110]
+DEBUG 2026-03-13 04:38:21,267 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56110]
+DEBUG 2026-03-13 04:38:21,267 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56110]
+DEBUG 2026-03-13 04:38:21,269 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56110]
+DEBUG 2026-03-13 04:38:21,269 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56110]
+INFO 2026-03-13 04:38:21,270 runserver 297962 126299487348416 [mHTTP GET /api/v1/notifications/ 200 [0.24, 127.0.0.1:56110][0m
+DEBUG 2026-03-13 04:38:21,382 ws_protocol 297962 126299487348416 WebSocket ['127.0.0.1', 56128] open and established
+DEBUG 2026-03-13 04:38:21,382 ws_protocol 297962 126299487348416 WebSocket ['127.0.0.1', 56128] open and established
+INFO 2026-03-13 04:38:21,395 runserver 297962 126299487348416 WebSocket CONNECT /ws/notifications/ [127.0.0.1:56128]
+DEBUG 2026-03-13 04:38:21,398 ws_protocol 297962 126299487348416 WebSocket ['127.0.0.1', 56128] accepted by application
+DEBUG 2026-03-13 04:38:21,398 ws_protocol 297962 126299487348416 WebSocket ['127.0.0.1', 56128] accepted by application
+DEBUG 2026-03-13 04:38:21,463 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56140]
+DEBUG 2026-03-13 04:38:21,463 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56140]
+DEBUG 2026-03-13 04:38:21,466 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56140]
+DEBUG 2026-03-13 04:38:21,466 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56140]
+DEBUG 2026-03-13 04:38:21,469 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56140]
+DEBUG 2026-03-13 04:38:21,469 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56140]
+INFO 2026-03-13 04:38:21,482 runserver 297962 126299487348416 [mHTTP GET /api/v1/messaging/threads/unread_count/ 200 [0.27, 127.0.0.1:56140][0m
+DEBUG 2026-03-13 04:38:21,555 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56120]
+DEBUG 2026-03-13 04:38:21,555 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56120]
+DEBUG 2026-03-13 04:38:21,561 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56120]
+DEBUG 2026-03-13 04:38:21,561 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56120]
+DEBUG 2026-03-13 04:38:21,563 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56120]
+DEBUG 2026-03-13 04:38:21,563 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56120]
+INFO 2026-03-13 04:38:21,565 runserver 297962 126299487348416 [mHTTP GET /api/v1/messaging/threads/ 200 [0.47, 127.0.0.1:56120][0m
+DEBUG 2026-03-13 04:38:21,591 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56142]
+DEBUG 2026-03-13 04:38:21,591 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56142]
+DEBUG 2026-03-13 04:38:21,721 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56142]
+DEBUG 2026-03-13 04:38:21,721 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56142]
+DEBUG 2026-03-13 04:38:21,725 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56142]
+DEBUG 2026-03-13 04:38:21,725 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56142]
+DEBUG 2026-03-13 04:38:21,730 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56142]
+DEBUG 2026-03-13 04:38:21,730 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56142]
+INFO 2026-03-13 04:38:21,734 runserver 297962 126299487348416 [mHTTP GET /api/v1/notifications/ 200 [0.14, 127.0.0.1:56142][0m
+DEBUG 2026-03-13 04:38:21,784 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56052]
+DEBUG 2026-03-13 04:38:21,784 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56052]
+DEBUG 2026-03-13 04:38:21,789 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56052]
+DEBUG 2026-03-13 04:38:21,789 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56052]
+DEBUG 2026-03-13 04:38:21,795 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56052]
+DEBUG 2026-03-13 04:38:21,795 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56052]
+INFO 2026-03-13 04:38:21,798 runserver 297962 126299487348416 [mHTTP GET /api/v1/rides/trips/ 200 [1.32, 127.0.0.1:56052][0m
+DEBUG 2026-03-13 04:38:21,804 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56152]
+DEBUG 2026-03-13 04:38:21,804 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56152]
+DEBUG 2026-03-13 04:38:21,885 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56156]
+DEBUG 2026-03-13 04:38:21,885 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56156]
+ERROR 2026-03-13 04:38:21,886 log 297962 126299450369728 Internal Server Error: /api/v1/assets/
+Traceback (most recent call last):
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/asgiref/sync.py", line 557, in thread_handler
+    raise exc_info[1]
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/django/core/handlers/exception.py", line 42, in inner
+    response = await get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/asgiref/sync.py", line 557, in thread_handler
+    raise exc_info[1]
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/django/core/handlers/base.py", line 253, in _get_response_async
+    response = await wrapped_callback(
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/asgiref/sync.py", line 506, in __call__
+    ret = await asyncio.shield(exec_coro)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/asgiref/current_thread_executor.py", line 40, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/asgiref/sync.py", line 561, in thread_handler
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/django/views/decorators/csrf.py", line 65, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/viewsets.py", line 125, in view
+    return self.dispatch(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/views.py", line 515, in dispatch
+    response = self.handle_exception(exc)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/views.py", line 475, in handle_exception
+    self.raise_uncaught_exception(exc)
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/views.py", line 486, in raise_uncaught_exception
+    raise exc
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/views.py", line 512, in dispatch
+    response = handler(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/mixins.py", line 43, in list
+    return self.get_paginated_response(serializer.data)
+                                       ^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/serializers.py", line 797, in data
+    ret = super().data
+          ^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/serializers.py", line 251, in data
+    self._data = self.to_representation(self.instance)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/serializers.py", line 716, in to_representation
+    self.child.to_representation(item) for item in iterable
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kiboss/apps/assets/serializers.py", line 148, in to_representation
+    return super().to_representation(instance)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/serializers.py", line 540, in to_representation
+    ret[field.field_name] = field.to_representation(attribute)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/fields.py", line 1870, in to_representation
+    return method(value)
+           ^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kiboss/apps/assets/serializers.py", line 137, in get_owner
+    return PublicUserSerializer(obj.owner, context=self.context).data
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/serializers.py", line 573, in data
+    ret = super().data
+          ^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/serializers.py", line 251, in data
+    self._data = self.to_representation(self.instance)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kiboss/apps/users/serializers.py", line 264, in to_representation
+    'origin': ride.origin.address if ride.origin else 'Unknown',
+              ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'str' object has no attribute 'address'
+DEBUG 2026-03-13 04:38:21,992 http_protocol 297962 126299487348416 HTTP 500 response started for ['127.0.0.1', 56042]
+DEBUG 2026-03-13 04:38:21,992 http_protocol 297962 126299487348416 HTTP 500 response started for ['127.0.0.1', 56042]
+DEBUG 2026-03-13 04:38:21,995 http_protocol 297962 126299487348416 HTTP response chunk for ['127.0.0.1', 56042]
+DEBUG 2026-03-13 04:38:21,995 http_protocol 297962 126299487348416 HTTP response chunk for ['127.0.0.1', 56042]
+DEBUG 2026-03-13 04:38:21,999 http_protocol 297962 126299487348416 HTTP response chunk for ['127.0.0.1', 56042]
+DEBUG 2026-03-13 04:38:21,999 http_protocol 297962 126299487348416 HTTP response chunk for ['127.0.0.1', 56042]
+DEBUG 2026-03-13 04:38:22,000 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56042]
+DEBUG 2026-03-13 04:38:22,000 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56042]
+DEBUG 2026-03-13 04:38:22,001 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56042]
+DEBUG 2026-03-13 04:38:22,001 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56042]
+ERROR 2026-03-13 04:38:22,002 runserver 297962 126299487348416 [35;1mHTTP GET /api/v1/assets/?page_size=8 500 [1.53, 127.0.0.1:56042][0m
+DEBUG 2026-03-13 04:38:22,037 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56152]
+DEBUG 2026-03-13 04:38:22,037 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56152]
+DEBUG 2026-03-13 04:38:22,053 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56152]
+DEBUG 2026-03-13 04:38:22,053 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56152]
+DEBUG 2026-03-13 04:38:22,059 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56152]
+DEBUG 2026-03-13 04:38:22,059 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56152]
+INFO 2026-03-13 04:38:22,064 runserver 297962 126299487348416 [mHTTP GET /api/v1/messaging/threads/unread_count/ 200 [0.26, 127.0.0.1:56152][0m
+DEBUG 2026-03-13 04:38:22,085 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56170]
+DEBUG 2026-03-13 04:38:22,085 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56170]
+DEBUG 2026-03-13 04:38:22,129 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56182]
+DEBUG 2026-03-13 04:38:22,129 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56182]
+DEBUG 2026-03-13 04:38:22,218 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56156]
+DEBUG 2026-03-13 04:38:22,218 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56156]
+DEBUG 2026-03-13 04:38:22,219 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56156]
+DEBUG 2026-03-13 04:38:22,219 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56156]
+DEBUG 2026-03-13 04:38:22,220 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56156]
+DEBUG 2026-03-13 04:38:22,220 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56156]
+INFO 2026-03-13 04:38:22,223 runserver 297962 126299487348416 [mHTTP GET /api/v1/messaging/threads/ 200 [0.34, 127.0.0.1:56156][0m
+DEBUG 2026-03-13 04:38:22,253 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56170]
+DEBUG 2026-03-13 04:38:22,253 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56170]
+DEBUG 2026-03-13 04:38:22,253 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56170]
+DEBUG 2026-03-13 04:38:22,253 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56170]
+DEBUG 2026-03-13 04:38:22,256 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56170]
+DEBUG 2026-03-13 04:38:22,256 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56170]
+INFO 2026-03-13 04:38:22,258 runserver 297962 126299487348416 [mHTTP GET /api/v1/notifications/ 200 [0.17, 127.0.0.1:56170][0m
+DEBUG 2026-03-13 04:38:22,320 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56192]
+DEBUG 2026-03-13 04:38:22,320 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56192]
+DEBUG 2026-03-13 04:38:22,508 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56182]
+DEBUG 2026-03-13 04:38:22,508 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56182]
+DEBUG 2026-03-13 04:38:22,510 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56182]
+DEBUG 2026-03-13 04:38:22,510 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56182]
+DEBUG 2026-03-13 04:38:22,511 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56182]
+DEBUG 2026-03-13 04:38:22,511 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56182]
+INFO 2026-03-13 04:38:22,511 runserver 297962 126299487348416 [mHTTP GET /api/v1/rides/trips/ 200 [0.38, 127.0.0.1:56182][0m
+DEBUG 2026-03-13 04:38:22,541 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56208]
+DEBUG 2026-03-13 04:38:22,541 http_protocol 297962 126299487348416 HTTP b'GET' request for ['127.0.0.1', 56208]
+DEBUG 2026-03-13 04:38:22,669 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56208]
+DEBUG 2026-03-13 04:38:22,669 http_protocol 297962 126299487348416 HTTP 200 response started for ['127.0.0.1', 56208]
+DEBUG 2026-03-13 04:38:22,677 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56208]
+DEBUG 2026-03-13 04:38:22,677 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56208]
+DEBUG 2026-03-13 04:38:22,679 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56208]
+DEBUG 2026-03-13 04:38:22,679 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56208]
+INFO 2026-03-13 04:38:22,679 runserver 297962 126299487348416 [mHTTP GET /api/v1/messaging/threads/ 200 [0.14, 127.0.0.1:56208][0m
+ERROR 2026-03-13 04:38:22,731 log 297962 126299450369728 Internal Server Error: /api/v1/assets/
+Traceback (most recent call last):
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/asgiref/sync.py", line 557, in thread_handler
+    raise exc_info[1]
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/django/core/handlers/exception.py", line 42, in inner
+    response = await get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/asgiref/sync.py", line 557, in thread_handler
+    raise exc_info[1]
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/django/core/handlers/base.py", line 253, in _get_response_async
+    response = await wrapped_callback(
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/asgiref/sync.py", line 506, in __call__
+    ret = await asyncio.shield(exec_coro)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/asgiref/current_thread_executor.py", line 40, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/asgiref/sync.py", line 561, in thread_handler
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/django/views/decorators/csrf.py", line 65, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/viewsets.py", line 125, in view
+    return self.dispatch(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/views.py", line 515, in dispatch
+    response = self.handle_exception(exc)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/views.py", line 475, in handle_exception
+    self.raise_uncaught_exception(exc)
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/views.py", line 486, in raise_uncaught_exception
+    raise exc
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/views.py", line 512, in dispatch
+    response = handler(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/mixins.py", line 43, in list
+    return self.get_paginated_response(serializer.data)
+                                       ^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/serializers.py", line 797, in data
+    ret = super().data
+          ^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/serializers.py", line 251, in data
+    self._data = self.to_representation(self.instance)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/serializers.py", line 716, in to_representation
+    self.child.to_representation(item) for item in iterable
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kiboss/apps/assets/serializers.py", line 148, in to_representation
+    return super().to_representation(instance)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/serializers.py", line 540, in to_representation
+    ret[field.field_name] = field.to_representation(attribute)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/fields.py", line 1870, in to_representation
+    return method(value)
+           ^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kiboss/apps/assets/serializers.py", line 137, in get_owner
+    return PublicUserSerializer(obj.owner, context=self.context).data
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/serializers.py", line 573, in data
+    ret = super().data
+          ^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kibossvenv/lib/python3.12/site-packages/rest_framework/serializers.py", line 251, in data
+    self._data = self.to_representation(self.instance)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bea/kiboss/backend/kiboss/apps/users/serializers.py", line 264, in to_representation
+    'origin': ride.origin.address if ride.origin else 'Unknown',
+              ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'str' object has no attribute 'address'
+DEBUG 2026-03-13 04:38:22,742 http_protocol 297962 126299487348416 HTTP 500 response started for ['127.0.0.1', 56192]
+DEBUG 2026-03-13 04:38:22,742 http_protocol 297962 126299487348416 HTTP 500 response started for ['127.0.0.1', 56192]
+DEBUG 2026-03-13 04:38:22,743 http_protocol 297962 126299487348416 HTTP response chunk for ['127.0.0.1', 56192]
+DEBUG 2026-03-13 04:38:22,743 http_protocol 297962 126299487348416 HTTP response chunk for ['127.0.0.1', 56192]
+DEBUG 2026-03-13 04:38:22,745 http_protocol 297962 126299487348416 HTTP response chunk for ['127.0.0.1', 56192]
+DEBUG 2026-03-13 04:38:22,745 http_protocol 297962 126299487348416 HTTP response chunk for ['127.0.0.1', 56192]
+DEBUG 2026-03-13 04:38:22,747 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56192]
+DEBUG 2026-03-13 04:38:22,747 http_protocol 297962 126299487348416 HTTP close for ['127.0.0.1', 56192]
+DEBUG 2026-03-13 04:38:22,748 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56192]
+DEBUG 2026-03-13 04:38:22,748 http_protocol 297962 126299487348416 HTTP response complete for ['127.0.0.1', 56192]
+ERROR 2026-03-13 04:38:22,749 runserver 297962 126299487348416 [35;1mHTTP GET /api/v1/assets/?page_size=8 500 [0.43, 127.0.0.1:56192][0m
+INFO 2026-03-13 04:38:50,740 autoreload 297962 126299558514816 /home/bea/kiboss/backend/kiboss/apps/payments/models.py changed, reloading.

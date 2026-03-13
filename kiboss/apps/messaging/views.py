@@ -381,6 +381,7 @@ class ThreadViewSet(viewsets.ModelViewSet):
         listing_id = request.data.get('listing_id')
         booking_id = request.data.get('booking_id')
         ride_id = request.data.get('ride_id')
+        initial_message = request.data.get('initial_message')
         
         # Validate target_user_id is provided
         if not target_user_id:
@@ -577,6 +578,16 @@ class ThreadViewSet(viewsets.ModelViewSet):
                         task.description += "\n[System Re-opened by user reply]"
                         task.save(update_fields=['status', 'description', 'updated_at'])
                 
+                # Also process initial_message for existing threads
+                if initial_message:
+                    Message.objects.create(
+                        thread=thread,
+                        sender=request.user,
+                        content=initial_message
+                    )
+                    thread.message_count += 1
+                    thread.save(update_fields=['message_count', 'updated_at'])
+                
                 return Response(ThreadSerializer(thread, context={'request': request}).data)
 
             # 2. Create new contextual thread
@@ -619,6 +630,15 @@ class ThreadViewSet(viewsets.ModelViewSet):
                     object_id=thread.id,
                     created_by=request.user
                 )
+
+            if initial_message:
+                Message.objects.create(
+                    thread=thread,
+                    sender=request.user,
+                    content=initial_message
+                )
+                thread.message_count += 1
+                thread.save(update_fields=['message_count', 'updated_at'])
 
         return Response(
             ThreadSerializer(thread, context={'request': request}).data,

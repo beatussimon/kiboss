@@ -106,6 +106,7 @@ class AssetListSerializer(serializers.ModelSerializer):
     """Serializer for listing assets."""
     
     owner_email = serializers.EmailField(source='owner.email', read_only=True)
+    owner = serializers.SerializerMethodField()
     verification_status_display = serializers.CharField(
         source='get_verification_status_display', read_only=True
     )
@@ -130,6 +131,10 @@ class AssetListSerializer(serializers.ModelSerializer):
     
     def get_is_verified(self, obj):
         return obj.verification_status == 'VERIFIED'
+        
+    def get_owner(self, obj):
+        from kiboss.apps.users.serializers import PublicUserSerializer
+        return PublicUserSerializer(obj.owner, context=self.context).data
     
     def get_owner_verification_badge(self, obj):
         """Return the asset owner's verification badge (tier + color)."""
@@ -147,6 +152,7 @@ class AssetDetailSerializer(serializers.ModelSerializer):
     """Serializer for asset details."""
     
     owner_email = serializers.EmailField(source='owner.email', read_only=True)
+    owner = serializers.SerializerMethodField()
     photos = AssetPhotoSerializer(many=True, read_only=True)
     pricing_rules = AssetPricingSerializer(many=True, read_only=True)
     availability_rules = AssetAvailabilitySerializer(many=True, read_only=True)
@@ -178,6 +184,10 @@ class AssetDetailSerializer(serializers.ModelSerializer):
     
     def get_is_verified(self, obj):
         return obj.verification_status == 'VERIFIED'
+        
+    def get_owner(self, obj):
+        from kiboss.apps.users.serializers import PublicUserSerializer
+        return PublicUserSerializer(obj.owner, context=self.context).data
     
     def to_representation(self, instance):
         """Prefetch related data for nested serializers."""

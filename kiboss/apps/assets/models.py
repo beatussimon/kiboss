@@ -387,7 +387,21 @@ class AssetPricing(models.Model):
         Returns:
             Decimal: Calculated price
         """
+        import math
         base_price = self.price
+        
+        time_multiplier = Decimal('1.0')
+        if duration_minutes > 0:
+            if self.unit_type == 'HOUR':
+                time_multiplier = Decimal(str(max(1, math.ceil(duration_minutes / 60))))
+            elif self.unit_type == 'DAY':
+                time_multiplier = Decimal(str(max(1, math.ceil(duration_minutes / 1440))))
+            elif self.unit_type == 'WEEK':
+                time_multiplier = Decimal(str(max(1, math.ceil(duration_minutes / 10080))))
+            elif self.unit_type == 'MONTH':
+                time_multiplier = Decimal(str(max(1, math.ceil(duration_minutes / 43200))))
+        
+        base_price *= time_multiplier
         
         # Apply quantity discount if available
         discounts = self.quantity_discounts or self.rules.get('quantity_discounts', [])

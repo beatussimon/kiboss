@@ -231,12 +231,57 @@ class PublicUserSerializer(serializers.ModelSerializer):
         # Add date joined
         data['date_joined'] = instance.date_joined.isoformat() if instance.date_joined else None
         
-        # Add empty arrays for listings, rides, reviews (these would need separate API calls)
+        # Add dynamic counts and arrays
+        from kiboss.apps.social.models import Follow
+        from kiboss.apps.assets.models import Asset
+        from kiboss.apps.rides.models import Ride
+        from kiboss.apps.ratings.models import Rating
+        
+        data['follower_count'] = Follow.objects.filter(following=instance).count()
+        data['following_count'] = Follow.objects.filter(follower=instance).count()
+        
+        # Listings
+        assets = Asset.objects.filter(owner=instance, is_active=True)[:10]
         data['listings'] = []
+        for asset in assets:
+            price = 0
+            price_rule = asset.pricing_rules.filter(is_active=True).first()
+            if price_rule:
+                price = price_rule.price
+            data['listings'].append({
+                'id': asset.id,
+                'title': asset.name,
+                'type': asset.get_asset_type_display(),
+                'price': price
+            })
+            
+        # Rides
+        rides = Ride.objects.filter(driver=instance, status='SCHEDULED')[:10]
         data['rides'] = []
+        for ride in rides:
+            data['rides'].append({
+                'id': str(ride.id),
+                'origin': ride.origin.address if ride.origin else 'Unknown',
+                'destination': ride.destination.address if ride.destination else 'Unknown',
+                'departure_time': ride.departure_time.isoformat() if ride.departure_time else None,
+                'price': str(ride.price_per_seat)
+            })
+            
+        # Reviews
+        reviews = Rating.objects.filter(reviewee=instance, status='APPROVED')[:10]
         data['reviews'] = []
-        data['rating'] = float(instance.trust_score) / 20 if instance.trust_score else 0
-        data['review_count'] = instance.total_ratings_count
+        for review in reviews:
+            data['reviews'].append({
+                'id': str(review.id),
+                'rating': review.overall_rating,
+                'comment': review.comment,
+                'reviewer': {
+                    'first_name': review.reviewer.first_name if review.reviewer else 'Anonymous'
+                }
+            })
+            
+        data['rating'] = float(instance.trust_score) / 20 if hasattr(instance, 'trust_score') and instance.trust_score else 0
+        data['review_count'] = getattr(instance, 'total_ratings_count', 0)
         
         # Check if following
         request = self.context.get('request')

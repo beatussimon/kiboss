@@ -703,7 +703,7 @@ class CurrentUserAnalyticsView(APIView):
         from kiboss.apps.assets.models import Asset
         from kiboss.apps.rides.models import Ride
         from kiboss.apps.bookings.models import Booking
-        from django.db.models import Sum, Count, F
+        from django.db.models import Sum, Count, F, Q, Avg
         from django.db.models.functions import TruncMonth
         from datetime import timedelta
         
@@ -771,6 +771,24 @@ class CurrentUserAnalyticsView(APIView):
             cancelled_bookings = Booking.objects.filter(asset__owner=user, status='CANCELLED').count()
             cancellation_rate = round((cancelled_bookings / all_bookings_count) * 100, 1) if all_bookings_count > 0 else 0.0
             overall_rating = round(Asset.objects.filter(owner=user).aggregate(Avg('average_rating'))['average_rating__avg'] or 5.0, 1)
+            # Audience Insights
+            unique_customers = Booking.objects.filter(asset__owner=user, status='COMPLETED').values('renter').distinct().count()
+            
+            top_locations_qs = Booking.objects.filter(asset__owner=user, status='COMPLETED').values('asset__city').annotate(
+                count=Count('id')
+            ).exclude(asset__city='').order_by('-count')[:3]
+            top_locations = [{'city': loc['asset__city'], 'count': loc['count']} for loc in top_locations_qs]
+            
+            repeat_customers = Booking.objects.filter(asset__owner=user, status='COMPLETED').values('renter').annotate(
+                b_count=Count('id')
+            ).filter(b_count__gt=1).count()
+            repeat_rate = round((repeat_customers / unique_customers) * 100, 1) if unique_customers > 0 else 0.0
+            
+            audience_insights = {
+                'unique_customers': unique_customers,
+                'top_locations': top_locations,
+                'repeat_customer_rate': repeat_rate
+            }
         
         visibility_multiplier = 1.0
         if hasattr(user, 'corporate_profile') and user.corporate_profile.verification_status == 'VERIFIED':
@@ -794,6 +812,7 @@ class CurrentUserAnalyticsView(APIView):
                 'revenue_trend': revenue_trend,
                 'top_listings': top_listings,
                 'cancellation_rate': cancellation_rate,
-                'overall_rating': overall_rating
+                'overall_rating': overall_rating,
+                'audience_insights': audience_insights
             }
         })

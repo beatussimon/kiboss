@@ -25,6 +25,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
     """
     queryset = Payment.objects.all().order_by('-created_at')
     permission_classes = [permissions.IsAuthenticated]
+    lookup_value_regex = r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
     
     @action(detail=False, methods=['get'])
     def summary(self, request):
