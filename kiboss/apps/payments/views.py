@@ -70,6 +70,14 @@ class PaymentViewSet(viewsets.ModelViewSet):
             'booking', 'booking__asset', 'booking__renter'
         ).order_by('-created_at')
         
+        # Admins can see all payments
+        if not (self.request.user.is_staff or self.request.user.is_superuser):
+            # Filter by user (renter or owner)
+            user = self.request.user
+            queryset = queryset.filter(
+                booking__renter=user
+            ) | queryset.filter(booking__asset__owner=user)
+        
         # Filter by status
         status_filter = self.request.query_params.get('status')
         if status_filter:
@@ -79,12 +87,6 @@ class PaymentViewSet(viewsets.ModelViewSet):
         booking_id = self.request.query_params.get('booking_id')
         if booking_id:
             queryset = queryset.filter(booking_id=booking_id)
-        
-        # Filter by user (renter or owner)
-        user = self.request.user
-        queryset = queryset.filter(
-            booking__renter=user
-        ) | queryset.filter(booking__asset__owner=user)
         
         return queryset.distinct()
     
@@ -153,6 +155,46 @@ class PaymentViewSet(viewsets.ModelViewSet):
         reason = request.data.get('reason', '')
         
         payment.refund(amount, reason)
+        
+        serializer = PaymentDetailSerializer(payment)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def confirm_offline_payment(self, request, pk=None):
+        """Confirm an offline payment (admin only)."""
+        if not request.user.is_staff and not request.user.is_superuser:
+            return Response(
+                {'error': 'Only admins can confirm offline payments'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        payment = self.get_object()
+        
+        if payment.status != PaymentStatus.PENDING:
+            return Response(
+                {'error': 'Payment is not in pending status'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Update payment with offline confirmation details
+        manual_confirmation = request.data.get('manual_confirmation', '')
+        offline_method_id = request.data.get('offline_method_id')
+        
+        if manual_confirmation:
+            payment.manual_confirmation = manual_confirmation
+        
+        if offline_method_id:
+            try:
+                offline_method = OfflinePaymentMethod.objects.get(id=offline_method_id)
+                payment.offline_method = offline_method
+            except OfflinePaymentMethod.DoesNotExist:
+                return Response(
+                    {'error': 'Offline payment method not found'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Move to escrow directly for offline payments (simulating bank transfer confirmation)
+        payment.hold_in_escrow()
         
         serializer = PaymentDetailSerializer(payment)
         return Response(serializer.data)
@@ -271,8 +313,64 @@ class SubscriptionPaymentViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        # Users can only see their own subscription payments
+        # Admins can see all subscription payments
+        if self.request.user.is_staff or self.request.user.is_superuser:
+            return self.queryset
         return self.queryset.filter(user=self.request.user)
         
     def perform_create(self, serializer):
         from kiboss.apps.payments.models import SubscriptionPayment
         serializer.save(user=self.request.user, status=SubscriptionPayment.Status.PENDING)
+    
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        """Approve a subscription payment (admin only)."""
+        if not request.user.is_staff and not request.user.is_superuser:
+            return Response(
+                {'error': 'Only admins can approve subscription payments'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        subscription_payment = self.get_object()
+        
+        if subscription_payment.status != SubscriptionPayment.Status.PENDING:
+            return Response(
+                {'error': 'Subscription payment is not pending approval'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        subscription_payment.status = SubscriptionPayment.Status.APPROVED
+        subscription_payment.admin_notes = request.data.get('admin_notes', '')
+        subscription_payment.reviewed_at = timezone.now()
+        subscription_payment.reviewed_by = request.user
+        subscription_payment.save()
+        
+        serializer = SubscriptionPaymentSerializer(subscription_payment)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        """Reject a subscription payment (admin only)."""
+        if not request.user.is_staff and not request.user.is_superuser:
+            return Response(
+                {'error': 'Only admins can reject subscription payments'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        subscription_payment = self.get_object()
+        
+        if subscription_payment.status != SubscriptionPayment.Status.PENDING:
+            return Response(
+                {'error': 'Subscription payment is not pending approval'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        subscription_payment.status = SubscriptionPayment.Status.REJECTED
+        subscription_payment.admin_notes = request.data.get('admin_notes', '')
+        subscription_payment.reviewed_at = timezone.now()
+        subscription_payment.reviewed_by = request.user
+        subscription_payment.save()
+        
+        serializer = SubscriptionPaymentSerializer(subscription_payment)
+        return Response(serializer.data)

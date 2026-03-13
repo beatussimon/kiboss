@@ -261,10 +261,10 @@ class PublicUserSerializer(serializers.ModelSerializer):
         for ride in rides:
             data['rides'].append({
                 'id': str(ride.id),
-                'origin': ride.origin.address if ride.origin else 'Unknown',
-                'destination': ride.destination.address if ride.destination else 'Unknown',
+                'origin': ride.origin if ride.origin else 'Unknown',
+                'destination': ride.destination if ride.destination else 'Unknown',
                 'departure_time': ride.departure_time.isoformat() if ride.departure_time else None,
-                'price': str(ride.price_per_seat)
+                'price': str(ride.seat_price) if ride.seat_price else '0'
             })
             
         # Reviews

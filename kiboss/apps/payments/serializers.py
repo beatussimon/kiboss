@@ -8,10 +8,19 @@ from kiboss.apps.payments.models import (
 )
 
 
+class OfflinePaymentMethodSerializer(serializers.ModelSerializer):
+    """Serializer for available offline payment methods."""
+    class Meta:
+        model = OfflinePaymentMethod
+        fields = ['id', 'network_name', 'payment_number', 'account_name', 'instructions']
+
+
 class PaymentSerializer(serializers.ModelSerializer):
     """Serializer for Payment model."""
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     payment_method_display = serializers.CharField(source='get_payment_method_display', read_only=True)
+    offline_method_details = OfflinePaymentMethodSerializer(source='offline_method', read_only=True)
+    manual_receipt_url = serializers.SerializerMethodField()
     
     class Meta:
         model = Payment
@@ -24,9 +33,18 @@ class PaymentSerializer(serializers.ModelSerializer):
             'refunded_amount', 'refunded_at', 'refund_reason',
             'penalty_amount', 'penalty_reason',
             'failure_code', 'failure_message',
+            'manual_confirmation',
+            'manual_receipt_url',
+            'offline_method',
+            'offline_method_details',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_manual_receipt_url(self, obj):
+        if obj.manual_receipt:
+            return obj.manual_receipt.url
+        return None
 
 
 class PaymentDetailSerializer(serializers.ModelSerializer):
@@ -99,13 +117,6 @@ class DisputeCreateSerializer(serializers.Serializer):
     reason = serializers.ChoiceField(choices=Dispute.DISPUTE_REASONS)
     description = serializers.CharField()
     disputed_amount = serializers.DecimalField(max_digits=10, decimal_places=2)
-
-
-class OfflinePaymentMethodSerializer(serializers.ModelSerializer):
-    """Serializer for available offline payment methods."""
-    class Meta:
-        model = OfflinePaymentMethod
-        fields = ['id', 'network_name', 'payment_number', 'account_name', 'instructions']
 
 
 class SubscriptionPaymentSerializer(serializers.ModelSerializer):
