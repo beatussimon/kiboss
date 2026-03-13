@@ -2,7 +2,10 @@
 Serializers for Payments API
 """
 from rest_framework import serializers
-from kiboss.apps.payments.models import Payment, Dispute, PaymentStatus, PaymentMethod
+from kiboss.apps.payments.models import (
+    Payment, Dispute, PaymentStatus, PaymentMethod,
+    OfflinePaymentMethod, SubscriptionPayment
+)
 
 
 class PaymentSerializer(serializers.ModelSerializer):
@@ -96,3 +99,24 @@ class DisputeCreateSerializer(serializers.Serializer):
     reason = serializers.ChoiceField(choices=Dispute.DISPUTE_REASONS)
     description = serializers.CharField()
     disputed_amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+
+
+class OfflinePaymentMethodSerializer(serializers.ModelSerializer):
+    """Serializer for available offline payment methods."""
+    class Meta:
+        model = OfflinePaymentMethod
+        fields = ['id', 'network_name', 'payment_number', 'account_name', 'instructions']
+
+
+class SubscriptionPaymentSerializer(serializers.ModelSerializer):
+    """Serializer for submitting subscription payment proofs."""
+    payment_method_details = OfflinePaymentMethodSerializer(source='payment_method', read_only=True)
+    
+    class Meta:
+        model = SubscriptionPayment
+        fields = [
+            'id', 'user', 'plan_type', 'amount', 'currency', 'payment_method',
+            'payment_method_details', 'confirmation_message', 'receipt_image',
+            'status', 'admin_notes', 'created_at'
+        ]
+        read_only_fields = ['id', 'user', 'status', 'admin_notes', 'created_at']

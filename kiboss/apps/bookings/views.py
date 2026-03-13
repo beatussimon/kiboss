@@ -82,7 +82,37 @@ class BookingViewSet(viewsets.ViewSet):
         queryset = queryset.order_by('-created_at')
         serializer = BookingResponseSerializer(queryset, many=True)
         return Response(serializer.data)
-    
+
+    @action(detail=False, methods=['get'])
+    def incoming(self, request):
+        """Get bookings requested on the user's assets/rides."""
+        queryset = Booking.objects.filter(asset__owner=request.user).order_by('-created_at')
+        
+        # Include 'Plus' insights if user is on PLUS or BUSINESS tier
+        serializer = BookingResponseSerializer(queryset, many=True)
+        data = serializer.data
+        
+        if request.user.account_tier in ['PLUS', 'BUSINESS']:
+            for item in data:
+                renter_id = item.get('renter', {}).get('id')
+                if renter_id:
+                    renter_bookings = Booking.objects.filter(renter_id=renter_id)
+                    total_bookings = renter_bookings.count()
+                    completed_bookings = renter_bookings.filter(status='COMPLETED').count()
+                    cancelled_bookings = renter_bookings.filter(status='CANCELLED').count()
+                    member_since = item.get('renter', {}).get('created_at')
+                    
+                    item['renter_stats'] = {
+                        'total_bookings': total_bookings,
+                        'completed_bookings': completed_bookings,
+                        'cancelled_bookings': cancelled_bookings,
+                        'member_since': member_since
+                    }
+                else:
+                    item['renter_stats'] = None
+                    
+        return Response(data)
+
     def retrieve(self, request, pk=None):
         """Get booking details."""
         # Handle non-UUID pk values (like 'new') - return 404 instead of 500

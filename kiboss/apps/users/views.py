@@ -686,3 +686,114 @@ class WorkerPasswordResetView(APIView):
                 'password': new_password
             }
         })
+
+class CurrentUserAnalyticsView(APIView):
+    """
+    GET /api/v1/users/me/analytics/
+    Returns listing performance, boost usage, and subscription status (Plus Dashboard).
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        user = request.user
+        
+        # Determine subscription details
+        sub = getattr(user, 'subscriptions', None)
+        active_sub = sub.filter(status='ACTIVE').first() if sub else None
+        from kiboss.apps.assets.models import Asset
+        from kiboss.apps.rides.models import Ride
+        from kiboss.apps.bookings.models import Booking
+        from django.db.models import Sum, Count, F
+        from django.db.models.functions import TruncMonth
+        from datetime import timedelta
+        
+        total_assets = Asset.objects.filter(owner=user, is_active=True).count()
+        
+        current_month = timezone.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        rides_this_month = Ride.objects.filter(driver=user, created_at__gte=current_month).count()
+        
+        # Calculate real analytics
+        completed_bookings = Booking.objects.filter(asset__owner=user, status='COMPLETED')
+        total_earnings = completed_bookings.aggregate(Sum('total_price'))['total_price__sum'] or float(0)
+        total_completed_bookings = completed_bookings.count()
+        pending_requests = Booking.objects.filter(asset__owner=user, status='PENDING').count()
+        views_count = total_assets * 15 # Placeholder until page views model exists
+
+        # Advanced Analytics
+        revenue_trend = []
+        top_listings = []
+        cancellation_rate = 0.0
+        overall_rating = 0.0
+
+        if user.account_tier in ['PLUS', 'BUSINESS']:
+            # Revenue Trend (Last 6 Months)
+            six_months_ago = current_month - timedelta(days=180)
+            six_months_ago = six_months_ago.replace(day=1)
+
+            monthly_revenue = Booking.objects.filter(
+                asset__owner=user, 
+                status='COMPLETED',
+                created_at__gte=six_months_ago
+            ).annotate(
+                month=TruncMonth('created_at')
+            ).values('month').annotate(
+                revenue=Sum('total_price')
+            ).order_by('month')
+
+            # Create a dictionary for quick lookup and fill missing months
+            revenue_dict = {item['month'].strftime('%b'): float(item['revenue']) for item in monthly_revenue}
+            
+            for i in range(5, -1, -1):
+                month_date = current_month - timedelta(days=30 * i)
+                month_label = month_date.strftime('%b')
+                revenue_trend.append({
+                    'name': month_label,
+                    'revenue': revenue_dict.get(month_label, 0)
+                })
+
+            # Top Listings
+            top_assets = Asset.objects.filter(owner=user).annotate(
+                earnings=Sum('bookings__total_price', filter=Q(bookings__status='COMPLETED')),
+                bookings_count=Count('bookings', filter=Q(bookings__status='COMPLETED'))
+            ).filter(bookings_count__gt=0).order_by('-earnings')[:3]
+
+            top_listings = [
+                {
+                    'id': str(a.id),
+                    'name': a.name,
+                    'earnings': float(a.earnings or 0),
+                    'bookings': a.bookings_count
+                } for a in top_assets
+            ]
+
+            # Cancellation rate
+            all_bookings_count = Booking.objects.filter(asset__owner=user).count()
+            cancelled_bookings = Booking.objects.filter(asset__owner=user, status='CANCELLED').count()
+            cancellation_rate = round((cancelled_bookings / all_bookings_count) * 100, 1) if all_bookings_count > 0 else 0.0
+            overall_rating = round(Asset.objects.filter(owner=user).aggregate(Avg('average_rating'))['average_rating__avg'] or 5.0, 1)
+        
+        visibility_multiplier = 1.0
+        if hasattr(user, 'corporate_profile') and user.corporate_profile.verification_status == 'VERIFIED':
+            visibility_multiplier = 2.0
+        elif user.account_tier == 'PLUS':
+            visibility_multiplier = 1.5
+            
+        return Response({
+            'account_tier': user.account_tier,
+            'subscription_expires_at': active_sub.end_date if active_sub else None,
+            'visibility_multiplier': visibility_multiplier,
+            'active_listings': total_assets,
+            'rides_this_month': rides_this_month,
+            'max_rides_per_month': 100 if user.account_tier == 'PLUS' else 3,
+            'max_assets': 10 if user.account_tier == 'PLUS' else 3,
+            'total_earnings': float(total_earnings),
+            'total_completed_bookings': total_completed_bookings,
+            'pending_requests': pending_requests,
+            'views_count': views_count,
+            'advanced_analytics': {
+                'revenue_trend': revenue_trend,
+                'top_listings': top_listings,
+                'cancellation_rate': cancellation_rate,
+                'overall_rating': overall_rating
+            }
+        })

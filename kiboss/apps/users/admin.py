@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from .models import (
     User, UserProfile, CorporateProfile, BusinessSubscription,
-    TrustScore, Device, BlacklistedToken
+    TrustScore, Device, BlacklistedToken, UserSubscription
 )
 from kiboss.apps.rbac.models import UserRole
 
@@ -77,3 +77,9 @@ class BlacklistedTokenAdmin(admin.ModelAdmin):
     list_display = ('user', 'reason', 'expires_at', 'created_at')
     list_filter = ('reason',)
     search_fields = ('user__email', 'token')
+
+@admin.register(UserSubscription)
+class UserSubscriptionAdmin(admin.ModelAdmin):
+    list_display = ('user', 'plan_type', 'status', 'start_date', 'end_date')
+    list_filter = ('plan_type', 'status')
+    search_fields = ('user__email',)

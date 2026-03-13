@@ -698,6 +698,51 @@ class CorporateWorker(models.Model):
         return f"{self.name or self.email} ({self.get_role_display()}) @ {self.corporate_profile.company_name}"
 
 
+class UserSubscription(models.Model):
+    """
+    Subscription tracking for regular users (Free, Plus).
+    """
+    class Plan(models.TextChoices):
+        FREE = 'FREE', 'Free'
+        PLUS = 'PLUS', 'Plus'
+        BUSINESS = 'BUSINESS', 'Business'
+
+    class Status(models.TextChoices):
+        ACTIVE = 'ACTIVE', 'Active'
+        EXPIRED = 'EXPIRED', 'Expired'
+        CANCELLED = 'CANCELLED', 'Cancelled'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='subscriptions'
+    )
+    
+    plan_type = models.CharField(max_length=20, choices=Plan.choices)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.ACTIVE
+    )
+    
+    start_date = models.DateTimeField(default=timezone.now)
+    end_date = models.DateTimeField(blank=True, null=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_subscriptions'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.user.email} - {self.plan_type} ({self.status})"
+
+    @property
+    def is_active(self):
+        return self.status == self.Status.ACTIVE and (not self.end_date or self.end_date > timezone.now())
+
 # Import verification models at the end to avoid circular imports 
 # and ensure they are registered with the app.
 from .verification_models import (

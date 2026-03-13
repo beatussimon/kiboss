@@ -46,17 +46,24 @@ class AssetViewSet(viewsets.ModelViewSet):
         if user.is_staff and not user.is_superuser:
             raise PermissionDenied("Staff accounts cannot create asset listings. Use a personal account or request superadmin access.")
 
-        # Check listing limits for non-child, non-vehicle assets
+        # Check listing limits for non-child assets across FREE and PLUS plans
         is_child = serializer.validated_data.get('parent') is not None
-        if not is_child and asset_type != AssetType.VEHICLE:
-            ASSET_LIMITS = {'FREE': 3, 'PLUS': 10}
-            max_assets = ASSET_LIMITS.get(user.account_tier, float('inf'))
-            if max_assets != float('inf'):
-                active_count = Asset.objects.filter(
-                    owner=user, is_active=True, parent__isnull=True
-                ).exclude(asset_type=AssetType.VEHICLE).count()
-                if active_count >= max_assets:
-                    raise PermissionDenied(f"Your {user.account_tier} plan allows up to {max_assets} asset listings. Upgrade to Plus or delete existing assets.")
+        if not is_child and user.account_tier in ['FREE', 'PLUS']:
+            total_active = Asset.objects.filter(
+                owner=user, is_active=True, parent__isnull=True
+            ).count()
+            
+            if user.account_tier == 'FREE' and total_active >= 3:
+                raise PermissionDenied("Your Free plan allows up to 3 active assets in total. Upgrade to Plus to add more.")
+            if user.account_tier == 'PLUS':
+                if total_active >= 10:
+                    raise PermissionDenied("Your Plus plan allows up to 10 active assets in total.")
+                if asset_type == AssetType.VEHICLE:
+                    vehicle_count = Asset.objects.filter(
+                        owner=user, is_active=True, asset_type=AssetType.VEHICLE, parent__isnull=True
+                    ).count()
+                    if vehicle_count >= 2:
+                        raise PermissionDenied("Your Plus plan allows a maximum of 2 active vehicles.")
         
         # CORPORATE GATE: Enforce Asset Business Profile Restrictions
         if hasattr(user, 'corporate_profile') and user.corporate_profile.verification_status == 'VERIFIED' and user.account_tier == 'BUSINESS':
@@ -141,18 +148,9 @@ class AssetViewSet(viewsets.ModelViewSet):
             if hasattr(user, 'corporate_profile') and user.corporate_profile.verification_status == 'VERIFIED':
                 is_verified_corporate = True
                 
-            if not is_verified_corporate:
-                # Regular users are limited by their tier
-                vehicle_count = Asset.objects.filter(
-                    owner=user, 
-                    asset_type=AssetType.VEHICLE
-                ).exclude(is_active=False, is_listed=False).count()
-                
-                VEHICLE_LIMITS = {'FREE': 1, 'PLUS': 3}
-                max_vehicles = VEHICLE_LIMITS.get(user.account_tier, 1)
-                
-                if vehicle_count >= max_vehicles:
-                    raise PermissionDenied(f"Your {user.account_tier} plan allows you to register up to {max_vehicles} vehicle(s). Upgrade to Plus or register as a Corporate Ride Business to add more.")
+            # Vehicles do not require explicit corporate tier limits here because 
+            # they are already handled by the global FREE/PLUS limits above.
+            # Legacy limits code removed.
             
             asset = serializer.save(
                 owner=user,
@@ -403,6 +401,53 @@ class AssetViewSet(viewsets.ModelViewSet):
         availability = asset.availability_rules.filter(is_active=True)
         serializer = AssetAvailabilitySerializer(availability, many=True)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['post'])
+    def bulk_discount(self, request):
+        """Apply a percentage discount to all active listings of the user."""
+        user = request.user
+        
+        # Free users cannot use advanced bulk marketing tools
+        if user.account_tier not in ['PLUS', 'BUSINESS']:
+            raise PermissionDenied("Only Plus and Business users can access the Marketing Center.")
+            
+        discount_percent = request.data.get('percentage')
+        if not discount_percent:
+            return Response({'error': 'percentage is required'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        try:
+            discount_percent = float(discount_percent)
+            if discount_percent < 0 or discount_percent > 99:
+                raise ValueError()
+        except (ValueError, TypeError):
+            return Response({'error': 'percentage must be between 0 and 99'}, status=status.HTTP_400_BAD_REQUEST)
+
+        multiplier = 1.0 - (discount_percent / 100.0)
+        
+        # Find all active pricing rules for user's assets
+        from kiboss.apps.assets.models import AssetPricing
+        
+        user_assets = Asset.objects.filter(owner=user, is_active=True)
+        user_pricing_rules = AssetPricing.objects.filter(asset__in=user_assets, is_active=True)
+        
+        updated_count = 0
+        from django.db import transaction
+        with transaction.atomic():
+            for rule in user_pricing_rules:
+                # Store original price in rules field if not already stored, so we can revert if needed
+                if 'original_price_before_discount' not in rule.rules:
+                    rule.rules['original_price_before_discount'] = str(rule.price)
+                
+                new_price = float(rule.price) * multiplier
+                rule.price = new_price
+                rule.save(update_fields=['price', 'rules', 'updated_at'])
+                updated_count += 1
+                
+        return Response({
+            'success': True,
+            'message': f'Successfully applied {discount_percent}% discount to {updated_count} active pricing rules.',
+            'updated_count': updated_count
+        })
 
 
 class AssetPhotoViewSet(viewsets.ModelViewSet):

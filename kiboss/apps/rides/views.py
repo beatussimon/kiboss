@@ -54,18 +54,29 @@ class VehicleRegistrationViewSet(viewsets.ModelViewSet):
             is_verified_corporate = True
             
         if not is_verified_corporate:
-            # Regular users are limited by their tier
-            vehicle_count = Asset.objects.filter(
+            # Regular users are limited by their tier.
+            # Free: 3 total assets max. Plus: 10 total assets max, 2 vehicles max.
+            total_assets = Asset.objects.filter(
                 owner=request.user, 
-                asset_type=AssetType.VEHICLE
-            ).exclude(is_active=False, is_listed=False).count()
+                is_active=True,
+                parent__isnull=True
+            ).count()
             
-            VEHICLE_LIMITS = {'FREE': 1, 'PLUS': 3}
-            max_vehicles = VEHICLE_LIMITS.get(request.user.account_tier, 1)
-            
-            if vehicle_count >= max_vehicles:
-                raise PermissionDenied(f"Your {request.user.account_tier} plan allows you to register up to {max_vehicles} vehicle(s). Upgrade to Plus or register as a Corporate Ride Business to add more.")
-        
+            if request.user.account_tier == 'FREE' and total_assets >= 3:
+                raise PermissionDenied("Your Free plan allows up to 3 active assets in total. Upgrade to Plus to add more.")
+            elif request.user.account_tier == 'PLUS':
+                if total_assets >= 10:
+                    raise PermissionDenied("Your Plus plan allows up to 10 active assets in total.")
+                
+                vehicle_count = Asset.objects.filter(
+                    owner=request.user, 
+                    asset_type=AssetType.VEHICLE,
+                    is_active=True,
+                    parent__isnull=True
+                ).count()
+                
+                if vehicle_count >= 2:
+                    raise PermissionDenied("Your Plus plan allows a maximum of 2 active vehicles.")        
         with transaction.atomic():
             asset = serializer.save(
                 owner=request.user, 
@@ -160,14 +171,21 @@ class RideViewSet(viewsets.ModelViewSet):
         
         # Enforce Ride Limits
         if ride_type != 'BUSINESS':
-            RIDE_LIMITS = {'FREE': 1, 'PLUS': 10}
-            max_rides = RIDE_LIMITS.get(user.account_tier, float('inf'))
-            if max_rides != float('inf'):
+            if user.account_tier == 'FREE':
                 active_rides = Ride.objects.filter(
                     driver=user, status__in=['SCHEDULED', 'OPEN']
                 ).count()
-                if active_rides >= max_rides:
-                    raise PermissionDenied(f"Your {user.account_tier} plan allows up to {max_rides} active rides. Upgrade or remove existing rides.")
+                if active_rides >= 3:
+                    raise PermissionDenied("Your Free plan allows up to 3 active/scheduled rides. Please upgrade to Plus to offer more.")
+            elif user.account_tier == 'PLUS':
+                from django.utils import timezone
+                current_month = timezone.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                monthly_rides = Ride.objects.filter(
+                    driver=user,
+                    created_at__gte=current_month
+                ).count()
+                if monthly_rides >= 100:
+                    raise PermissionDenied("Your Plus plan allows up to 100 rides per month. You've reached your limit.")
         
         # Check Business Isolation: ASSET businesses cannot offer rides
         if hasattr(user, 'corporate_profile'):

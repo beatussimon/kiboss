@@ -396,3 +396,83 @@ class Dispute(models.Model):
             self.payment.release_from_escrow(self.disputed_amount * Decimal('0.5'))
         
         self.save()
+
+
+class OfflinePaymentMethod(models.Model):
+    """
+    Offline payment methods configurable by Admin.
+    e.g., Bank Transfer, M-Pesa.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    network_name = models.CharField(max_length=100, help_text="e.g., M-Pesa, CRDB Bank")
+    payment_number = models.CharField(max_length=100, help_text="Lipa Number or Account Number")
+    account_name = models.CharField(max_length=100, help_text="Name on the account")
+    instructions = models.TextField(blank=True, help_text="Additional instructions for the user")
+    
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'offline_payment_methods'
+        ordering = ['network_name']
+
+    def __str__(self):
+        return f"{self.network_name} - {self.payment_number}"
+
+
+class SubscriptionPayment(models.Model):
+    """
+    Manual payment proof submission for subscription upgrades.
+    """
+    class Status(models.TextChoices):
+        PENDING = 'PENDING', 'Pending Approval'
+        APPROVED = 'APPROVED', 'Approved'
+        REJECTED = 'REJECTED', 'Rejected'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='subscription_payments'
+    )
+    
+    plan_type = models.CharField(max_length=20, choices=[('PLUS', 'Plus'), ('BUSINESS', 'Business')])
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    currency = models.CharField(max_length=3, default='TZS')
+    
+    payment_method = models.ForeignKey(
+        OfflinePaymentMethod,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='payments'
+    )
+    
+    confirmation_message = models.TextField(blank=True, help_text="User's message or transaction ID")
+    receipt_image = models.ImageField(upload_to='payment_receipts/%Y/%m/', blank=True, null=True)
+    
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING
+    )
+    
+    admin_notes = models.TextField(blank=True, help_text="Notes from admin upon approval/rejection")
+    reviewed_at = models.DateTimeField(blank=True, null=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reviewed_payments'
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'subscription_payments'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.user.email} - {self.plan_type} - {self.status}"

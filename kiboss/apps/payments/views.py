@@ -7,11 +7,15 @@ from rest_framework.response import Response
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
-from kiboss.apps.payments.models import Payment, Dispute, PaymentStatus
+from kiboss.apps.payments.models import (
+    Payment, Dispute, PaymentStatus, 
+    OfflinePaymentMethod, SubscriptionPayment
+)
 from kiboss.apps.payments.serializers import (
     PaymentSerializer, PaymentDetailSerializer,
     PaymentCreateSerializer, PaymentActionSerializer,
-    DisputeSerializer, DisputeCreateSerializer
+    DisputeSerializer, DisputeCreateSerializer,
+    OfflinePaymentMethodSerializer, SubscriptionPaymentSerializer
 )
 
 
@@ -250,3 +254,24 @@ class DisputeViewSet(viewsets.ModelViewSet):
         
         serializer = DisputeSerializer(dispute)
         return Response(serializer.data)
+
+
+class OfflinePaymentMethodViewSet(viewsets.ReadOnlyModelViewSet):
+    """Read-only viewset to list active offline payment methods."""
+    queryset = OfflinePaymentMethod.objects.filter(is_active=True)
+    serializer_class = OfflinePaymentMethodSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+
+class SubscriptionPaymentViewSet(viewsets.ModelViewSet):
+    """ViewSet for users to submit manual payment proofs for subscriptions."""
+    queryset = SubscriptionPayment.objects.all().order_by('-created_at')
+    serializer_class = SubscriptionPaymentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return self.queryset.filter(user=self.request.user)
+        
+    def perform_create(self, serializer):
+        from kiboss.apps.payments.models import SubscriptionPayment
+        serializer.save(user=self.request.user, status=SubscriptionPayment.Status.PENDING)

@@ -1,6 +1,6 @@
 from rest_framework import viewsets, permissions
-from .models import Feedback
-from .serializers import FeedbackSerializer
+from .models import Feedback, FAQ
+from .serializers import FeedbackSerializer, FAQSerializer
 
 class FeedbackViewSet(viewsets.ModelViewSet):
     """
@@ -37,3 +37,12 @@ class FeedbackViewSet(viewsets.ModelViewSet):
             object_id=feedback.id,
             created_by=feedback.user
         )
+
+
+class FAQViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Read-only ViewSet for FAQs.
+    """
+    queryset = FAQ.objects.filter(is_active=True).order_by('order', '-created_at')
+    serializer_class = FAQSerializer
+    permission_classes = [permissions.AllowAny]

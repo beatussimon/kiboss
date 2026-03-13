@@ -5,7 +5,7 @@ URL Configuration for Users API
 from django.urls import path
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from .serializers import CustomTokenObtainPairSerializer
-from .views import CurrentUserView, PublicUserView, RegisterView, CorporateRegistrationView, BusinessConfigView, VerifyEmailView, CorporateWorkerViewSet, TierListView, UpgradeView, WorkerPasswordResetView
+from .views import CurrentUserView, PublicUserView, RegisterView, CorporateRegistrationView, BusinessConfigView, VerifyEmailView, CorporateWorkerViewSet, TierListView, UpgradeView, WorkerPasswordResetView, CurrentUserAnalyticsView
 
 urlpatterns = [
     path('register/', RegisterView.as_view(), name='register'),
@@ -22,6 +22,7 @@ urlpatterns = [
     
     # Current user endpoints (must come before <uuid> routes)
     path('me/', CurrentUserView.as_view(), name='current-user'),
+    path('me/analytics/', CurrentUserAnalyticsView.as_view(), name='current-user-analytics'),
     
     # Public user profile endpoint (must come after /me/)
     path('<uuid:user_id>/public/', PublicUserView.as_view(), name='public-user'),

@@ -17,7 +17,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.html import format_html
 
-from .models import Payment, Dispute, PaymentStatus
+from .models import Payment, Dispute, PaymentStatus, OfflinePaymentMethod, SubscriptionPayment
 
 
 # =============================================================================
@@ -333,3 +333,64 @@ def get_payment_stats():
         'resolved_disputes': Dispute.objects.filter(status='RESOLVED').count(),
     }
     return stats
+
+def approve_subscription_payment(modeladmin, request, queryset):
+    """Approve selected subscription payments."""
+    from datetime import timedelta
+    from kiboss.apps.users.models import UserSubscription
+    
+    for payment in queryset.filter(status=SubscriptionPayment.Status.PENDING):
+        payment.status = SubscriptionPayment.Status.APPROVED
+        payment.reviewed_at = timezone.now()
+        payment.reviewed_by = request.user
+        payment.admin_notes = "Approved via admin action."
+        payment.save()
+        
+        # Activate/Update subscription
+        user = payment.user
+        user.account_tier = payment.plan_type
+        user.save()
+        
+        # Create or update UserSubscription
+        sub, created = UserSubscription.objects.get_or_create(
+            user=user,
+            defaults={
+                'plan_type': payment.plan_type,
+                'status': UserSubscription.Status.ACTIVE,
+                'start_date': timezone.now(),
+                'end_date': timezone.now() + timedelta(days=30)
+            }
+        )
+        if not created:
+            sub.plan_type = payment.plan_type
+            sub.status = UserSubscription.Status.ACTIVE
+            sub.start_date = timezone.now()
+            sub.end_date = timezone.now() + timedelta(days=30)
+            sub.save()
+
+approve_subscription_payment.short_description = "Approve selected payments"
+
+def reject_subscription_payment(modeladmin, request, queryset):
+    """Reject selected subscription payments."""
+    for payment in queryset.filter(status=SubscriptionPayment.Status.PENDING):
+        payment.status = SubscriptionPayment.Status.REJECTED
+        payment.reviewed_at = timezone.now()
+        payment.reviewed_by = request.user
+        payment.admin_notes = "Rejected via admin action."
+        payment.save()
+
+reject_subscription_payment.short_description = "Reject selected payments"
+
+@admin.register(OfflinePaymentMethod)
+class OfflinePaymentMethodAdmin(admin.ModelAdmin):
+    list_display = ('network_name', 'payment_number', 'account_name', 'is_active')
+    list_filter = ('is_active',)
+    search_fields = ('network_name', 'payment_number', 'account_name')
+
+@admin.register(SubscriptionPayment)
+class SubscriptionPaymentAdmin(admin.ModelAdmin):
+    list_display = ('user', 'plan_type', 'amount', 'status', 'created_at')
+    list_filter = ('status', 'plan_type')
+    search_fields = ('user__email', 'confirmation_message')
+    readonly_fields = ('created_at', 'updated_at', 'reviewed_at', 'reviewed_by')
+    actions = [approve_subscription_payment, reject_subscription_payment]

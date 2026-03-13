@@ -5,7 +5,7 @@ Serializers for Common API
 from rest_framework import serializers
 
 
-from .models import Feedback
+from .models import Feedback, FAQ
 
 class FeedbackSerializer(serializers.ModelSerializer):
     """Serializer for User Feedback"""
@@ -47,3 +47,10 @@ class LocationQuerySerializer(serializers.Serializer):
         # Coordinates are validated by the field constraints (min_value/max_value)
         
         return data
+
+
+class FAQSerializer(serializers.ModelSerializer):
+    """Serializer for Frequently Asked Questions"""
+    class Meta:
+        model = FAQ
+        fields = ['id', 'question', 'answer', 'order']

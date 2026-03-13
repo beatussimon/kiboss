@@ -40,3 +40,26 @@ class Feedback(models.Model):
 
     def __str__(self):
         return f"{self.category}: {self.subject} ({self.user.email})"
+
+
+class FAQ(models.Model):
+    """
+    Frequently Asked Questions managed by admin.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    question = models.CharField(max_length=255)
+    answer = models.TextField()
+    is_active = models.BooleanField(default=True)
+    order = models.PositiveIntegerField(default=0, help_text="Order of display")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'faqs'
+        ordering = ['order', '-created_at']
+        verbose_name = 'FAQ'
+        verbose_name_plural = 'FAQs'
+
+    def __str__(self):
+        return self.question

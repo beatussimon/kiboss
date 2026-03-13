@@ -300,6 +300,13 @@ class BookingService:
                     {'quantity': quantity, 'total': str(price_breakdown["total"])}
                 )
                 
+                # Send notifications
+                try:
+                    from kiboss.apps.notifications.services import NotificationService
+                    NotificationService.notify_booking_created(booking)
+                except Exception as e:
+                    logger.warning(f"Could not send booking creation notifications: {e}")
+                
                 return booking
         
         try:

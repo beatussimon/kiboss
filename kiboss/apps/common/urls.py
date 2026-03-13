@@ -5,10 +5,11 @@ URL configuration for Common API
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from kiboss.apps.common.services.location import LocationView
-from .views import FeedbackViewSet
+from .views import FeedbackViewSet, FAQViewSet
 
 router = DefaultRouter()
 router.register(r'feedbacks', FeedbackViewSet, basename='feedback')
+router.register(r'faq', FAQViewSet, basename='faq')
 
 urlpatterns = [
     path('', include(router.urls)),
