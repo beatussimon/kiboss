@@ -17,7 +17,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.html import format_html
 
-from .models import Booking, BookingStatusTransition, BookingTimeline, BookingLock, BookingStatus
+from .models import Booking, BookingStatusTransition, BookingTimeline, BookingLock, BookingStatus, AvailabilitySlot, AvailabilitySlot
 
 
 # =============================================================================
@@ -301,6 +301,26 @@ class BookingLockAdmin(admin.ModelAdmin):
     search_fields = ['resource_id', 'owner_id']
     ordering = ['-expires_at']
     list_per_page = 50
+
+
+@admin.register(AvailabilitySlot)
+class AvailabilitySlotAdmin(admin.ModelAdmin):
+    """Admin configuration for AvailabilitySlot model."""
+    
+    list_display = [
+        'asset', 'start_time', 'end_time',
+        'is_available', 'capacity', 'booked_quantity',
+        'last_updated'
+    ]
+    list_filter = ['is_available', 'start_time']
+    search_fields = ['asset__name']
+    ordering = ['-start_time']
+    list_per_page = 50
+    readonly_fields = ['last_updated', 'cache_version']
+    
+    def get_queryset(self, request):
+        """Optimize queryset with select_related."""
+        return super().get_queryset(request).select_related('asset')
 
 
 # =============================================================================

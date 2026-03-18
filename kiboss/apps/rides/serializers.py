@@ -38,6 +38,7 @@ class SeatBookingSerializer(serializers.ModelSerializer):
     passenger = UserSerializer(read_only=True)
     pickup_stop_details = RideStopSerializer(source='pickup_stop', read_only=True)
     dropoff_stop_details = RideStopSerializer(source='dropoff_stop', read_only=True)
+    booking_category = serializers.SerializerMethodField()
     
     class Meta:
         model = SeatBooking
@@ -50,9 +51,12 @@ class SeatBookingSerializer(serializers.ModelSerializer):
             'checked_in_at', 'boarded_at',
             'marked_no_show_at', 'no_show_penalty_applied',
             'cancelled_at', 'cancellation_reason',
-            'created_at', 'updated_at'
+            'created_at', 'updated_at', 'booking_category'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_booking_category(self, obj):
+        return 'ride'
 
 
 class SeatBookingCreateSerializer(serializers.Serializer):

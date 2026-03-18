@@ -17,6 +17,8 @@ from decimal import Decimal
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 
 
 class PaymentStatus(models.TextChoices):
@@ -402,12 +404,41 @@ class OfflinePaymentMethod(models.Model):
     """
     Offline payment methods configurable by Admin.
     e.g., Bank Transfer, M-Pesa.
+    Supports Lipa Namba payments with optional QR code.
     """
+    
+    PAYMENT_TYPES = [
+        ('MOBILE_MONEY', 'Mobile Money'),
+        ('BANK', 'Bank Transfer'),
+        ('CASH', 'Cash'),
+        ('LIPA_NAMBA', 'Lipa Namba'),
+    ]
+    
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     network_name = models.CharField(max_length=100, help_text="e.g., M-Pesa, CRDB Bank")
+    payment_type = models.CharField(max_length=20, choices=PAYMENT_TYPES, default='MOBILE_MONEY')
     payment_number = models.CharField(max_length=100, help_text="Lipa Number or Account Number")
     account_name = models.CharField(max_length=100, help_text="Name on the account")
     instructions = models.TextField(blank=True, help_text="Additional instructions for the user")
+    
+    # QR Code support for Lipa Namba
+    qr_code = models.ImageField(upload_to='payment_qr/%Y/%m/', blank=True, null=True, help_text="QR Code image for Lipa Namba payments")
+    qr_instructions = models.TextField(blank=True, help_text="Instructions for scanning QR code")
+    
+    # Display order
+    display_order = models.PositiveIntegerField(default=0)
+    
+    # New fields for Shopflix flow and Zenopay mapping
+    lipa_namba = models.CharField(max_length=100, blank=True, help_text="Lipa Namba for quick payments")
+    qr_code_image = models.ImageField(upload_to='payment_qr_images/%Y/%m/', blank=True, null=True, help_text="QR Code image for Lipa Namba")
+    is_system_wide = models.BooleanField(default=False, help_text="True for Super Admin, False for Users")
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='owned_offline_methods'
+    )
     
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -415,7 +446,7 @@ class OfflinePaymentMethod(models.Model):
 
     class Meta:
         db_table = 'offline_payment_methods'
-        ordering = ['network_name']
+        ordering = ['display_order', 'network_name']
 
     def __str__(self):
         return f"{self.network_name} - {self.payment_number}"
@@ -476,3 +507,166 @@ class SubscriptionPayment(models.Model):
 
     def __str__(self):
         return f"{self.user.email} - {self.plan_type} - {self.status}"
+
+
+class UserPaymentMethod(models.Model):
+    """
+    User-configured payment methods (for receiving payments).
+    Users can add their own Lipa Namba / M-Pesa numbers, bank accounts, etc.
+    """
+    
+    PAYMENT_TYPES = [
+        ('MPESA', 'M-Pesa'),
+        ('TIGO_PESA', 'Tigo Pesa'),
+        ('AIRTEL_MONEY', 'Airtel Money'),
+        ('HALOPESA', 'Halo Pesa'),
+        ('AZAM_PESA', 'Azam Pesa'),
+        ('CRDB', 'CRDB Bank'),
+        ('NMB', 'NMB Bank'),
+        ('OTHER', 'Other'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='payment_methods'
+    )
+    
+    payment_type = models.CharField(max_length=20, choices=PAYMENT_TYPES)
+    account_name = models.CharField(max_length=100, help_text="Name on the account")
+    account_number = models.CharField(max_length=100, help_text="Phone number or account number")
+    instructions = models.TextField(blank=True, help_text="Additional instructions for payers")
+    
+    # QR Code for the payment method
+    qr_code = models.ImageField(upload_to='user_payment_qr/%Y/%m/', blank=True, null=True)
+    
+    is_active = models.BooleanField(default=True)
+    is_default = models.BooleanField(default=False)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_payment_methods'
+        ordering = ['-is_default', '-created_at']
+
+    def __str__(self):
+        return f"{self.user.email} - {self.payment_type} - {self.account_number}"
+
+
+class ManualPayment(models.Model):
+    """
+    Manual payment proof submission for bookings (ride seats or asset bookings).
+    Users submit proof of payment and admin verifies.
+    """
+    
+    class Status(models.TextChoices):
+        PENDING = 'PENDING', 'Pending Approval'
+        APPROVED = 'APPROVED', 'Approved'
+        REJECTED = 'REJECTED', 'Rejected'
+    
+    # Reference to either Booking (asset) or SeatBooking (ride)
+    booking_type = models.CharField(max_length=10, choices=[('ASSET', 'Asset Booking'), ('RIDE', 'Ride Seat Booking')])
+    booking_id = models.UUIDField()
+    
+    # Amount and currency
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    currency = models.CharField(max_length=3, default='TZS')
+    
+    # Payment method used
+    payment_method = models.ForeignKey(
+        OfflinePaymentMethod,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='manual_payments'
+    )
+    
+    # User's own payment method (if they configured one)
+    user_payment_method = models.ForeignKey(
+        UserPaymentMethod,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='received_payments'
+    )
+    
+    # Payment details
+    transaction_id = models.CharField(max_length=100, blank=True, help_text="Transaction ID or reference number")
+    confirmation_message = models.TextField(blank=True, help_text="User's message about the payment")
+    receipt_image = models.ImageField(upload_to='manual_payment_receipts/%Y/%m/', blank=True, null=True)
+    
+    # Status
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING
+    )
+    
+    # Admin review
+    admin_notes = models.TextField(blank=True, help_text="Notes from admin upon approval/rejection")
+    reviewed_at = models.DateTimeField(blank=True, null=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reviewed_manual_payments'
+    )
+    
+    # Metadata
+    metadata = models.JSONField(default=dict, blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'manual_payments'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Manual Payment {self.id} - {self.booking_type} - {self.status}"
+    
+    @property
+    def booking(self):
+        """Get the associated booking object."""
+        if self.booking_type == 'ASSET':
+            from kiboss.apps.bookings.models import Booking
+            return Booking.objects.get(id=self.booking_id)
+        elif self.booking_type == 'RIDE':
+            from kiboss.apps.rides.models import SeatBooking
+            return SeatBooking.objects.get(id=self.booking_id)
+        return None
+
+class ManualPaymentReceipt(models.Model):
+    """
+    Shopflix Flow: Manual payment receipt linked via GenericForeignKey to Booking or Subscription.
+    """
+    class Status(models.TextChoices):
+        PENDING = 'PENDING', 'Pending Approval'
+        APPROVED = 'APPROVED', 'Approved'
+        REJECTED = 'REJECTED', 'Rejected'
+
+    # Generic Foreign Key
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id = models.UUIDField()
+    content_object = GenericForeignKey('content_type', 'object_id')
+
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='uploaded_receipts')
+    sender_phone_number = models.CharField(max_length=20)
+    transaction_reference = models.CharField(max_length=100, unique=True)
+    transaction_message = models.TextField(help_text="For pasting SMS")
+    receipt_image = models.ImageField(upload_to='receipts/%Y/%m/', blank=True, null=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'manual_payment_receipts'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Receipt {self.transaction_reference} - {self.status}"
+

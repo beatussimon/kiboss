@@ -89,6 +89,7 @@ class BookingResponseSerializer(serializers.ModelSerializer):
     can_cancel = serializers.SerializerMethodField()
     can_start = serializers.SerializerMethodField()
     can_complete = serializers.SerializerMethodField()
+    booking_category = serializers.SerializerMethodField()
     
     class Meta:
         model = Booking
@@ -101,7 +102,7 @@ class BookingResponseSerializer(serializers.ModelSerializer):
             'is_late', 'late_minutes', 'late_fee_charged',
             'cancellation_fee', 'cancelled_at',
             'completed_at', 'created_at', 'updated_at',
-            'can_cancel', 'can_start', 'can_complete'
+            'can_cancel', 'can_start', 'can_complete', 'booking_category'
         ]
         read_only_fields = fields
     
@@ -125,6 +126,9 @@ class BookingResponseSerializer(serializers.ModelSerializer):
     def get_can_complete(self, obj):
         can, _ = obj.is_completable()
         return can
+        
+    def get_booking_category(self, obj):
+        return 'asset'
 
 
 class BookingListSerializer(serializers.ModelSerializer):
@@ -133,18 +137,22 @@ class BookingListSerializer(serializers.ModelSerializer):
     asset_name = serializers.CharField(source='asset.name', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     duration_hours = serializers.SerializerMethodField()
+    booking_category = serializers.SerializerMethodField()
     
     class Meta:
         model = Booking
         fields = [
             'id', 'asset_name', 'asset_id', 'status', 'status_display',
             'start_time', 'end_time', 'duration_hours', 'quantity',
-            'total_price', 'currency', 'created_at'
+            'total_price', 'currency', 'created_at', 'booking_category'
         ]
         read_only_fields = fields
     
     def get_duration_hours(self, obj):
         return obj.get_duration_hours()
+        
+    def get_booking_category(self, obj):
+        return 'asset'
 
 
 class BookingStartSerializer(serializers.Serializer):

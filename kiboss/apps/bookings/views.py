@@ -56,61 +56,142 @@ class BookingViewSet(viewsets.ViewSet):
         })
     
     def list(self, request):
-        """List user's bookings with optional filtering."""
+        """List user's bookings (both asset and ride bookings) with optional filtering."""
+        from kiboss.apps.rides.models import SeatBooking, SeatBookingStatus
+        
         role = request.query_params.get('role')
         
         if role == 'RENTER':
-            queryset = Booking.objects.filter(renter=request.user)
+            # Asset bookings where user is renter
+            asset_queryset = Booking.objects.filter(renter=request.user)
+            # Ride bookings where user is passenger
+            ride_queryset = SeatBooking.objects.filter(passenger=request.user)
         elif role == 'OWNER':
-            queryset = Booking.objects.filter(asset__owner=request.user)
+            # Asset bookings where user owns the asset
+            asset_queryset = Booking.objects.filter(asset__owner=request.user)
+            # Ride bookings where user is the driver
+            ride_queryset = SeatBooking.objects.filter(ride__driver=request.user)
         else:
-            # Get bookings where user is renter or asset owner
-            as_renter = Booking.objects.filter(renter=request.user)
-            as_owner = Booking.objects.filter(asset__owner=request.user)
-            queryset = (as_renter | as_owner).distinct()
+            # Get bookings where user is renter/passenger or asset owner/driver
+            asset_queryset = Booking.objects.filter(renter=request.user) | Booking.objects.filter(asset__owner=request.user)
+            ride_queryset = SeatBooking.objects.filter(passenger=request.user) | SeatBooking.objects.filter(ride__driver=request.user)
         
         # Filter by status
         status_filter = request.query_params.get('status')
         if status_filter:
-            queryset = queryset.filter(status=status_filter)
+            asset_queryset = asset_queryset.filter(status=status_filter)
+            ride_queryset = ride_queryset.filter(status=status_filter)
         
         # Filter by asset
         asset_id = request.query_params.get('asset_id')
         if asset_id:
-            queryset = queryset.filter(asset_id=asset_id)
+            asset_queryset = asset_queryset.filter(asset_id=asset_id)
         
-        queryset = queryset.order_by('-created_at')
-        serializer = BookingResponseSerializer(queryset, many=True)
-        return Response(serializer.data)
+        # Filter by ride
+        ride_id = request.query_params.get('ride_id')
+        if ride_id:
+            ride_queryset = ride_queryset.filter(ride_id=ride_id)
+        
+        # Get unique results
+        asset_queryset = asset_queryset.distinct().order_by('-created_at')
+        ride_queryset = ride_queryset.distinct().order_by('-created_at')
+        
+        # Serialize both
+        from kiboss.apps.bookings.serializers import BookingResponseSerializer
+        from kiboss.apps.rides.serializers import SeatBookingSerializer
+        
+        asset_data = BookingResponseSerializer(asset_queryset, many=True).data
+        ride_data = SeatBookingSerializer(ride_queryset, many=True).data
+        
+        # Add booking type indicator to each item
+        for item in asset_data:
+            item['booking_type'] = 'ASSET'
+        for item in ride_data:
+            item['booking_type'] = 'RIDE'
+            # Ensure photos field exists for frontend compatibility
+            if 'photos' not in item:
+                item['photos'] = []
+        
+        # Combine and sort by created_at
+        combined = asset_data + ride_data
+        combined.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        
+        return Response(combined)
 
     @action(detail=False, methods=['get'])
     def incoming(self, request):
-        """Get bookings requested on the user's assets/rides."""
-        queryset = Booking.objects.filter(asset__owner=request.user).order_by('-created_at')
+        """Get bookings requested on the user's assets AND rides."""
+        from kiboss.apps.rides.models import SeatBooking, SeatBookingStatus
         
-        # Include 'Plus' insights if user is on PLUS or BUSINESS tier
-        serializer = BookingResponseSerializer(queryset, many=True)
-        data = serializer.data
+        # Get asset bookings on user's assets
+        asset_bookings = Booking.objects.filter(asset__owner=request.user).order_by('-created_at')
         
+        # Get seat bookings on user's rides
+        ride_bookings = SeatBooking.objects.filter(ride__driver=request.user).order_by('-created_at')
+        
+        # Combine and serialize both
+        from kiboss.apps.bookings.serializers import BookingResponseSerializer
+        from kiboss.apps.rides.serializers import SeatBookingSerializer
+        
+        asset_data = BookingResponseSerializer(asset_bookings, many=True).data
+        ride_data = SeatBookingSerializer(ride_bookings, many=True).data
+        
+        # Add booking type indicator to each item
+        for item in asset_data:
+            item['booking_type'] = 'ASSET'
+        for item in ride_data:
+            item['booking_type'] = 'RIDE'
+            # Ensure photos field exists for frontend compatibility
+            if 'photos' not in item:
+                item['photos'] = []
+        
+        # Combine and sort by created_at
+        combined = asset_data + ride_data
+        combined.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        
+        data = combined
+        
+        # Include 'Plus' insights if user is on PLUS or BUSINESS tier (for asset bookings only)
         if request.user.account_tier in ['PLUS', 'BUSINESS']:
             for item in data:
-                renter_id = item.get('renter', {}).get('id')
-                if renter_id:
-                    renter_bookings = Booking.objects.filter(renter_id=renter_id)
-                    total_bookings = renter_bookings.count()
-                    completed_bookings = renter_bookings.filter(status='COMPLETED').count()
-                    cancelled_bookings = renter_bookings.filter(status='CANCELLED').count()
-                    member_since = item.get('renter', {}).get('created_at')
-                    
-                    item['renter_stats'] = {
-                        'total_bookings': total_bookings,
-                        'completed_bookings': completed_bookings,
-                        'cancelled_bookings': cancelled_bookings,
-                        'member_since': member_since
-                    }
+                if item.get('booking_type') == 'ASSET':
+                    renter_id = item.get('renter', {}).get('id')
+                    if renter_id:
+                        renter_bookings = Booking.objects.filter(renter_id=renter_id)
+                        total_bookings = renter_bookings.count()
+                        completed_bookings = renter_bookings.filter(status='COMPLETED').count()
+                        cancelled_bookings = renter_bookings.filter(status='CANCELLED').count()
+                        member_since = item.get('renter', {}).get('created_at')
+                        
+                        item['renter_stats'] = {
+                            'total_bookings': total_bookings,
+                            'completed_bookings': completed_bookings,
+                            'cancelled_bookings': cancelled_bookings,
+                            'member_since': member_since
+                        }
+                    else:
+                        item['renter_stats'] = None
                 else:
-                    item['renter_stats'] = None
+                    # For ride bookings, get passenger stats
+                    passenger_id = item.get('passenger', {}).get('id')
+                    if passenger_id:
+                        passenger_bookings = SeatBooking.objects.filter(passenger_id=passenger_id)
+                        total_bookings = passenger_bookings.count()
+                        completed_bookings = passenger_bookings.filter(status='COMPLETED').count()
+                        cancelled_bookings = passenger_bookings.filter(status='CANCELLED').count()
+                        member_since = item.get('passenger', {}).get('created_at')
+                        
+                        item['passenger_stats'] = {
+                            'total_bookings': total_bookings,
+                            'completed_bookings': completed_bookings,
+                            'cancelled_bookings': cancelled_bookings,
+                            'member_since': member_since
+                        }
+                    else:
+                        item['passenger_stats'] = None
                     
+                    item['renter_stats'] = None
+        
         return Response(data)
 
     def retrieve(self, request, pk=None):

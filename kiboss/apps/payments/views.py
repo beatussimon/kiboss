@@ -9,13 +9,14 @@ from django.db.models import Sum
 from django.utils import timezone
 from kiboss.apps.payments.models import (
     Payment, Dispute, PaymentStatus, 
-    OfflinePaymentMethod, SubscriptionPayment
+    OfflinePaymentMethod, SubscriptionPayment, UserPaymentMethod, ManualPayment
 )
 from kiboss.apps.payments.serializers import (
     PaymentSerializer, PaymentDetailSerializer,
     PaymentCreateSerializer, PaymentActionSerializer,
     DisputeSerializer, DisputeCreateSerializer,
-    OfflinePaymentMethodSerializer, SubscriptionPaymentSerializer
+    OfflinePaymentMethodSerializer, SubscriptionPaymentSerializer,
+    UserPaymentMethodSerializer, ManualPaymentSerializer
 )
 
 
@@ -299,12 +300,40 @@ class DisputeViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
-class OfflinePaymentMethodViewSet(viewsets.ReadOnlyModelViewSet):
-    """Read-only viewset to list active offline payment methods."""
-    queryset = OfflinePaymentMethod.objects.filter(is_active=True)
+class OfflinePaymentMethodViewSet(viewsets.ModelViewSet):
+    """ViewSet to list active offline payment methods and manage personal methods."""
     serializer_class = OfflinePaymentMethodSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_staff or user.is_superuser:
+            return OfflinePaymentMethod.objects.all().order_by('-created_at')
+        
+        # Regular users see system-wide active methods AND their own methods
+        from django.db.models import Q
+        return OfflinePaymentMethod.objects.filter(
+            Q(is_system_wide=True, is_active=True) | Q(owner=user)
+        ).order_by('-created_at')
+
+    def perform_create(self, serializer):
+        # A regular user creating a method is automatically the owner
+        # They cannot set is_system_wide to True unless staff
+        is_system_wide = serializer.validated_data.get('is_system_wide', False)
+        if is_system_wide and not (self.request.user.is_staff or self.request.user.is_superuser):
+            is_system_wide = False
+            
+        serializer.save(
+            owner=self.request.user,
+            is_system_wide=is_system_wide
+        )
+        
+    def perform_update(self, serializer):
+        is_system_wide = serializer.validated_data.get('is_system_wide', getattr(serializer.instance, 'is_system_wide', False))
+        if is_system_wide and not (self.request.user.is_staff or self.request.user.is_superuser):
+            is_system_wide = False
+            
+        serializer.save(is_system_wide=is_system_wide)
 
 class SubscriptionPaymentViewSet(viewsets.ModelViewSet):
     """ViewSet for users to submit manual payment proofs for subscriptions."""
@@ -373,4 +402,154 @@ class SubscriptionPaymentViewSet(viewsets.ModelViewSet):
         subscription_payment.save()
         
         serializer = SubscriptionPaymentSerializer(subscription_payment)
+        return Response(serializer.data)
+
+
+class UserPaymentMethodViewSet(viewsets.ModelViewSet):
+    """ViewSet for users to manage their own payment methods."""
+    queryset = UserPaymentMethod.objects.all().order_by('-created_at')
+    serializer_class = UserPaymentMethodSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        # Users can only see and manage their own payment methods
+        return UserPaymentMethod.objects.filter(user=self.request.user)
+    
+    def perform_create(self, serializer):
+        # If this is set as default, unset other defaults
+        if serializer.validated_data.get('is_default', False):
+            UserPaymentMethod.objects.filter(
+                user=self.request.user, is_default=True
+            ).update(is_default=False)
+        serializer.save(user=self.request.user)
+    
+    def perform_update(self, serializer):
+        # If this is set as default, unset other defaults
+        if serializer.validated_data.get('is_default', False):
+            UserPaymentMethod.objects.filter(
+                user=self.request.user, is_default=True
+            ).exclude(pk=self.get_object().pk).update(is_default=False)
+        serializer.save()
+
+
+class ManualPaymentViewSet(viewsets.ModelViewSet):
+    """ViewSet for manual payment submissions for bookings."""
+    queryset = ManualPayment.objects.all().order_by('-created_at')
+    serializer_class = ManualPaymentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        # Users can see their own submissions, admins can see all
+        if self.request.user.is_staff or self.request.user.is_superuser:
+            return ManualPayment.objects.all()
+        
+        # Get bookings where user is the renter/passenger
+        from kiboss.apps.bookings.models import Booking
+        from kiboss.apps.rides.models import SeatBooking
+        
+        user_asset_bookings = Booking.objects.filter(renter=self.request.user).values_list('id', flat=True)
+        user_ride_bookings = SeatBooking.objects.filter(passenger=self.request.user).values_list('id', flat=True)
+        
+        return ManualPayment.objects.filter(
+            booking_type='ASSET', booking_id__in=user_asset_bookings
+        ) | ManualPayment.objects.filter(
+            booking_type='RIDE', booking_id__in=user_ride_bookings
+        )
+    
+    def perform_create(self, serializer):
+        serializer.save(status=ManualPayment.Status.PENDING)
+    
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        """Approve a manual payment (admin only)."""
+        if not request.user.is_staff and not request.user.is_superuser:
+            return Response(
+                {'error': 'Only admins can approve manual payments'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        manual_payment = self.get_object()
+        
+        if manual_payment.status != ManualPayment.Status.PENDING:
+            return Response(
+                {'error': 'Manual payment is not pending approval'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        manual_payment.status = ManualPayment.Status.APPROVED
+        manual_payment.admin_notes = request.data.get('admin_notes', '')
+        manual_payment.reviewed_at = timezone.now()
+        manual_payment.reviewed_by = request.user
+        manual_payment.save()
+        
+        # Update the associated booking status if needed
+        try:
+            booking = manual_payment.booking
+            if manual_payment.booking_type == 'ASSET':
+                from kiboss.apps.bookings.services import BookingService
+                BookingService.confirm_booking(booking.id, request.user)
+            elif manual_payment.booking_type == 'RIDE':
+                from kiboss.apps.rides.models import SeatBooking, SeatBookingStatus
+                booking.status = SeatBookingStatus.CONFIRMED
+                booking.save()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Error updating booking status: {e}")
+        
+        # Send notification to user
+        try:
+            from kiboss.apps.notifications.services import NotificationService
+            from kiboss.apps.notifications.models import NotificationCategory
+            NotificationService.create_notification(
+                user=booking.renter if manual_payment.booking_type == 'ASSET' else booking.passenger,
+                category=NotificationCategory.PAYMENT,
+                notification_type='MANUAL_PAYMENT_APPROVED',
+                title='Payment Approved',
+                message=f'Your manual payment of {manual_payment.amount} {manual_payment.currency} has been approved.',
+            )
+        except Exception:
+            pass
+        
+        serializer = ManualPaymentSerializer(manual_payment)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        """Reject a manual payment (admin only)."""
+        if not request.user.is_staff and not request.user.is_superuser:
+            return Response(
+                {'error': 'Only admins can reject manual payments'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        manual_payment = self.get_object()
+        
+        if manual_payment.status != ManualPayment.Status.PENDING:
+            return Response(
+                {'error': 'Manual payment is not pending approval'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        manual_payment.status = ManualPayment.Status.REJECTED
+        manual_payment.admin_notes = request.data.get('admin_notes', '')
+        manual_payment.reviewed_at = timezone.now()
+        manual_payment.reviewed_by = request.user
+        manual_payment.save()
+        
+        # Send notification to user
+        try:
+            booking = manual_payment.booking
+            from kiboss.apps.notifications.services import NotificationService
+            from kiboss.apps.notifications.models import NotificationCategory
+            NotificationService.create_notification(
+                user=booking.renter if manual_payment.booking_type == 'ASSET' else booking.passenger,
+                category=NotificationCategory.PAYMENT,
+                notification_type='MANUAL_PAYMENT_REJECTED',
+                title='Payment Rejected',
+                message=f'Your manual payment of {manual_payment.amount} {manual_payment.currency} has been rejected. Reason: {manual_payment.admin_notes}',
+            )
+        except Exception:
+            pass
+        
+        serializer = ManualPaymentSerializer(manual_payment)
         return Response(serializer.data)

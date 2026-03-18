@@ -17,7 +17,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.html import format_html
 
-from .models import Payment, Dispute, PaymentStatus, OfflinePaymentMethod, SubscriptionPayment
+from .models import Payment, Dispute, PaymentStatus, OfflinePaymentMethod, SubscriptionPayment, UserPaymentMethod, ManualPayment, ManualPaymentReceipt
 
 
 # =============================================================================
@@ -383,9 +383,16 @@ reject_subscription_payment.short_description = "Reject selected payments"
 
 @admin.register(OfflinePaymentMethod)
 class OfflinePaymentMethodAdmin(admin.ModelAdmin):
-    list_display = ('network_name', 'payment_number', 'account_name', 'is_active')
-    list_filter = ('is_active',)
-    search_fields = ('network_name', 'payment_number', 'account_name')
+    list_display = ('network_name', 'payment_type', 'lipa_namba', 'payment_number', 'account_name', 'is_system_wide', 'is_active', 'display_order')
+    list_filter = ('is_active', 'payment_type', 'is_system_wide')
+    search_fields = ('network_name', 'payment_number', 'lipa_namba', 'account_name')
+    list_editable = ('is_active', 'display_order')
+
+    def get_readonly_fields(self, request, obj=None):
+        if not (request.user.is_superuser or request.user.is_staff):
+            return super().get_readonly_fields(request, obj) + ('is_system_wide',)
+        return super().get_readonly_fields(request, obj)
+
 
 @admin.register(SubscriptionPayment)
 class SubscriptionPaymentAdmin(admin.ModelAdmin):
@@ -394,3 +401,76 @@ class SubscriptionPaymentAdmin(admin.ModelAdmin):
     search_fields = ('user__email', 'confirmation_message')
     readonly_fields = ('created_at', 'updated_at', 'reviewed_at', 'reviewed_by')
     actions = [approve_subscription_payment, reject_subscription_payment]
+
+@admin.register(UserPaymentMethod)
+class UserPaymentMethodAdmin(admin.ModelAdmin):
+    """Admin for user-configured payment methods."""
+    list_display = ('user', 'payment_type', 'account_name', 'account_number', 'is_active', 'is_default', 'created_at')
+    list_filter = ('is_active', 'is_default', 'payment_type')
+    search_fields = ('user__email', 'account_name', 'account_number')
+    readonly_fields = ('created_at', 'updated_at')
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user')
+
+@admin.register(ManualPayment)
+class ManualPaymentAdmin(admin.ModelAdmin):
+    """Admin for manual payments on bookings."""
+    list_display = ('id', 'booking_type', 'amount', 'currency', 'status', 'created_at')
+    list_filter = ('status', 'booking_type', 'currency')
+    search_fields = ('id', 'transaction_id', 'confirmation_message')
+    readonly_fields = ('created_at', 'updated_at', 'reviewed_at', 'reviewed_by')
+    
+    actions = ['approve_manual_payment', 'reject_manual_payment']
+    
+    def approve_manual_payment(self, request, queryset):
+        """Approve selected manual payments."""
+        for payment in queryset.filter(status=ManualPayment.Status.PENDING):
+            payment.status = ManualPayment.Status.APPROVED
+            payment.reviewed_at = timezone.now()
+            payment.reviewed_by = request.user
+            payment.admin_notes = "Approved via admin action."
+            payment.save()
+            
+            # Update booking status
+            try:
+                booking = payment.booking
+                if payment.booking_type == 'ASSET':
+                    from kiboss.apps.bookings.services import BookingService
+                    BookingService.confirm_booking(booking.id, request.user)
+                elif payment.booking_type == 'RIDE':
+                    from kiboss.apps.rides.models import SeatBooking, SeatBookingStatus
+                    booking.status = SeatBookingStatus.CONFIRMED
+                    booking.save()
+            except Exception:
+                pass
+    
+    approve_manual_payment.short_description = "Approve selected payments"
+    
+    def reject_manual_payment(self, request, queryset):
+        """Reject selected manual payments."""
+        for payment in queryset.filter(status=ManualPayment.Status.PENDING):
+            payment.status = ManualPayment.Status.REJECTED
+            payment.reviewed_at = timezone.now()
+            payment.reviewed_by = request.user
+            payment.admin_notes = "Rejected via admin action."
+            payment.save()
+    
+    reject_manual_payment.short_description = "Reject selected payments"
+
+@admin.register(ManualPaymentReceipt)
+class ManualPaymentReceiptAdmin(admin.ModelAdmin):
+    list_display = ('transaction_reference', 'uploaded_by', 'content_type', 'object_id', 'status', 'created_at')
+    list_filter = ('status', 'content_type', 'created_at')
+    search_fields = ('transaction_reference', 'sender_phone_number', 'uploaded_by__email')
+    readonly_fields = ('created_at', 'updated_at')
+    actions = ['approve_receipts', 'reject_receipts']
+
+    def approve_receipts(self, request, queryset):
+        queryset.update(status=ManualPaymentReceipt.Status.APPROVED)
+    approve_receipts.short_description = "Approve selected receipts"
+
+    def reject_receipts(self, request, queryset):
+        queryset.update(status=ManualPaymentReceipt.Status.REJECTED)
+    reject_receipts.short_description = "Reject selected receipts"
+

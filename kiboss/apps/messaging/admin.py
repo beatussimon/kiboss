@@ -16,7 +16,7 @@ from django.contrib import admin
 from django.http import HttpResponse
 from django.utils.html import format_html
 
-from .models import Thread, Message, MessageAttachment, MessageRateLimit, ThreadStatus, ThreadType
+from .models import Thread, Message, MessageAttachment, MessageRateLimit, MessageReadReceipt, ThreadStatus, ThreadType
 
 
 # =============================================================================
@@ -290,6 +290,21 @@ class MessageRateLimitAdmin(admin.ModelAdmin):
     search_fields = ['user__email']
     ordering = ['-window_start']
     list_per_page = 50
+
+
+@admin.register(MessageReadReceipt)
+class MessageReadReceiptAdmin(admin.ModelAdmin):
+    """Admin configuration for MessageReadReceipt model."""
+    
+    list_display = ['message', 'user', 'read_at']
+    list_filter = ['read_at']
+    search_fields = ['message__thread__id', 'user__email']
+    ordering = ['-read_at']
+    list_per_page = 50
+    
+    def get_queryset(self, request):
+        """Optimize queryset with select_related."""
+        return super().get_queryset(request).select_related('message', 'user')
 
 
 # =============================================================================

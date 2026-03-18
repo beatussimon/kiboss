@@ -7,7 +7,7 @@ from datetime import datetime
 from django.contrib import admin
 from django.http import HttpResponse
 
-from .models import Like, Follow
+from .models import Like, Follow, Bookmark
 
 
 # =============================================================================
@@ -106,6 +106,7 @@ def get_social_stats():
     stats = {
         'total_likes': Like.objects.count(),
         'total_follows': Follow.objects.count(),
+        'total_bookmarks': Bookmark.objects.count(),
         'asset_likes': Like.objects.filter(entity_type='ASSET').count(),
         'owner_likes': Like.objects.filter(entity_type='OWNER').count(),
         'review_likes': Like.objects.filter(entity_type='REVIEW').count(),
@@ -113,3 +114,34 @@ def get_social_stats():
         'driver_follows': Follow.objects.filter(entity_type='DRIVER').count(),
     }
     return stats
+
+
+# =============================================================================
+# BOOKMARK ADMIN
+# =============================================================================
+
+@admin.register(Bookmark)
+class BookmarkAdmin(admin.ModelAdmin):
+    """
+    Admin configuration for Bookmark model.
+    """
+    
+    list_display = [
+        'user', 'entity_type', 'entity_id_preview',
+        'created_at'
+    ]
+    list_filter = ['entity_type', 'created_at']
+    search_fields = ['user__email', 'entity_type']
+    ordering = ['-created_at']
+    list_per_page = 50
+    
+    def entity_id_preview(self, obj):
+        """Show truncated entity ID."""
+        return str(obj.entity_id)[:8]
+    entity_id_preview.short_description = 'Entity ID'
+    
+    actions = [export_to_csv]
+    
+    def get_queryset(self, request):
+        """Optimize queryset with select_related."""
+        return super().get_queryset(request).select_related('user')

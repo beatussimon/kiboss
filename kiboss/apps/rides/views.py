@@ -245,19 +245,26 @@ class RideViewSet(viewsets.ModelViewSet):
         serializer.save(**extra_kwargs)
     
     def get_queryset(self):
+        from kiboss.apps.rides.models import RideStatus
         queryset = Ride.objects.select_related('driver', 'vehicle_asset').prefetch_related('stops').order_by('-departure_time')
+        
+        # Filter by driver
+        driver_id = self.request.query_params.get('driver')
+        is_own_rides = False
+        if driver_id == 'me':
+            queryset = queryset.filter(driver=self.request.user)
+            is_own_rides = True
+        elif driver_id:
+            queryset = queryset.filter(driver_id=driver_id)
         
         # Filter by status
         status_param = self.request.query_params.get('status')
         if status_param:
             queryset = queryset.filter(status=status_param)
-        
-        # Filter by driver
-        driver_id = self.request.query_params.get('driver')
-        if driver_id == 'me':
-            queryset = queryset.filter(driver=self.request.user)
-        elif driver_id:
-            queryset = queryset.filter(driver_id=driver_id)
+        elif not is_own_rides:
+            # Default: exclude FULL and CANCELLED rides from public listings
+            # Users can still see their own FULL rides (they'll be handled above)
+            queryset = queryset.exclude(status__in=[RideStatus.FULL, RideStatus.CANCELLED])
         
         # Filter by origin/destination
         origin = self.request.query_params.get('origin')
@@ -518,13 +525,14 @@ class RideViewSet(viewsets.ModelViewSet):
                 
                 # Create the booking
                 with transaction.atomic():
+                    locked_ride = Ride.objects.select_for_update().get(id=ride.id)
                     booking = SeatBooking.objects.create(
-                        ride=ride,
+                        ride=locked_ride,
                         passenger=request.user,
                         seat_number=seat_number,
                         status=SeatBookingStatus.RESERVED,
-                        price=ride.seat_price,
-                        currency=ride.currency,
+                        price=locked_ride.seat_price,
+                        currency=locked_ride.currency,
                         pickup_stop_id=pickup_stop_id,
                         dropoff_stop_id=dropoff_stop_id,
                         passenger_notes=passenger_notes,
@@ -532,8 +540,18 @@ class RideViewSet(viewsets.ModelViewSet):
                     )
                     
                     # Update ride seat counts
-                    ride.reserved_seats += 1
-                    ride.save(update_fields=['reserved_seats', 'updated_at'])
+                    locked_ride.reserved_seats += 1
+                    locked_ride.save(update_fields=['reserved_seats', 'updated_at'])
+                
+                # Send notifications to driver and passenger
+                try:
+                    from kiboss.apps.notifications.services import NotificationService
+                    NotificationService.notify_seat_booking_created(booking)
+                except Exception as e:
+                    # Log error but don't fail the booking
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Failed to send notification for seat booking: {e}")
                 
                 response_serializer = SeatBookingSerializer(booking)
                 return Response(response_serializer.data, status=status.HTTP_201_CREATED)
@@ -599,14 +617,15 @@ class RideViewSet(viewsets.ModelViewSet):
                 # Create the bookings
                 created_bookings = []
                 with transaction.atomic():
+                    locked_ride = Ride.objects.select_for_update().get(id=ride.id)
                     for seat_number in seats_to_book:
                         booking = SeatBooking.objects.create(
-                            ride=ride,
+                            ride=locked_ride,
                             passenger=request.user,
                             seat_number=seat_number,
                             status=SeatBookingStatus.RESERVED,
-                            price=ride.seat_price,
-                            currency=ride.currency,
+                            price=locked_ride.seat_price,
+                            currency=locked_ride.currency,
                             pickup_stop_id=pickup_stop_id,
                             dropoff_stop_id=dropoff_stop_id,
                             passenger_notes=passenger_notes,
@@ -615,8 +634,19 @@ class RideViewSet(viewsets.ModelViewSet):
                         created_bookings.append(booking)
                     
                     # Update ride seat counts
-                    ride.reserved_seats += quantity
-                    ride.save(update_fields=['reserved_seats', 'updated_at'])
+                    locked_ride.reserved_seats += quantity
+                    locked_ride.save(update_fields=['reserved_seats', 'updated_at'])
+                
+                # Send notifications to driver and passenger
+                try:
+                    from kiboss.apps.notifications.services import NotificationService
+                    for booking in created_bookings:
+                        NotificationService.notify_seat_booking_created(booking)
+                except Exception as e:
+                    # Log error but don't fail the booking
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Failed to send notification for bulk seat booking: {e}")
                 
                 response_serializer = SeatBookingSerializer(created_bookings, many=True)
                 return Response(response_serializer.data, status=status.HTTP_201_CREATED)
@@ -709,13 +739,14 @@ class SeatBookingViewSet(viewsets.ModelViewSet):
                 
                 # Create the booking
                 with transaction.atomic():
+                    locked_ride = Ride.objects.select_for_update().get(id=ride.id)
                     booking = SeatBooking.objects.create(
-                        ride=ride,
+                        ride=locked_ride,
                         passenger=request.user,
                         seat_number=seat_number,
                         status=SeatBookingStatus.RESERVED,
-                        price=ride.seat_price,
-                        currency=ride.currency,
+                        price=locked_ride.seat_price,
+                        currency=locked_ride.currency,
                         pickup_stop_id=serializer.validated_data.get('pickup_stop_id'),
                         dropoff_stop_id=serializer.validated_data.get('dropoff_stop_id'),
                         passenger_notes=serializer.validated_data.get('passenger_notes', ''),
@@ -723,8 +754,8 @@ class SeatBookingViewSet(viewsets.ModelViewSet):
                     )
                     
                     # Update ride seat counts
-                    ride.reserved_seats += 1
-                    ride.save(update_fields=['reserved_seats', 'updated_at'])
+                    locked_ride.reserved_seats += 1
+                    locked_ride.save(update_fields=['reserved_seats', 'updated_at'])
                 
                 response_serializer = SeatBookingSerializer(booking)
                 return Response(response_serializer.data, status=status.HTTP_201_CREATED)

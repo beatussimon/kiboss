@@ -422,14 +422,19 @@ class SeatBooking(models.Model):
     
     def cancel(self, reason=''):
         """Cancel seat booking."""
-        if self.status == SeatBookingStatus.CONFIRMED:
+        if self.status in [SeatBookingStatus.CONFIRMED, SeatBookingStatus.RESERVED]:
+            previous_status = self.status
             self.status = SeatBookingStatus.CANCELLED
             self.cancelled_at = timezone.now()
             self.cancellation_reason = reason
             self.save()
             
             # Update ride seat counts
-            self.ride.confirmed_seats = max(0, self.ride.confirmed_seats - 1)
+            if previous_status == SeatBookingStatus.CONFIRMED:
+                self.ride.confirmed_seats = max(0, self.ride.confirmed_seats - 1)
+            elif previous_status == SeatBookingStatus.RESERVED:
+                self.ride.reserved_seats = max(0, self.ride.reserved_seats - 1)
+            
             # We call save() to trigger the visibility logic update in Ride.save()
             self.ride.save()
     

@@ -40,6 +40,10 @@ def expire_pending_bookings(self):
         return
     
     try:
+        from django.contrib.contenttypes.models import ContentType
+        from kiboss.apps.payments.models import ManualPaymentReceipt
+        from kiboss.apps.rides.models import SeatBooking, SeatBookingStatus
+
         # Find pending bookings older than 15 minutes
         timeout = timezone.now() - timedelta(minutes=15)
         
@@ -47,9 +51,24 @@ def expire_pending_bookings(self):
             status=BookingStatus.PENDING,
             created_at__lt=timeout
         )
+
+        expired_ride_bookings = SeatBooking.objects.filter(
+            status=SeatBookingStatus.RESERVED,
+            created_at__lt=timeout
+        )
         
+        asset_ctype = ContentType.objects.get_for_model(Booking)
+        ride_ctype = ContentType.objects.get_for_model(SeatBooking)
+
         count = 0
         for booking in expired_bookings:
+            if ManualPaymentReceipt.objects.filter(
+                content_type=asset_ctype,
+                object_id=booking.id,
+                status__in=['PENDING', 'APPROVED']
+            ).exists():
+                continue
+
             try:
                 with transaction.atomic():
                     # Transition to expired
@@ -90,6 +109,39 @@ def expire_pending_bookings(self):
                     
             except Exception as e:
                 logger.error(f"Error expiring booking {booking.id}: {e}")
+
+        for seat_booking in expired_ride_bookings:
+            if ManualPaymentReceipt.objects.filter(
+                content_type=ride_ctype,
+                object_id=seat_booking.id,
+                status__in=['PENDING', 'APPROVED']
+            ).exists():
+                continue
+
+            try:
+                with transaction.atomic():
+                    seat_booking.cancel(reason='Payment timeout')
+                    
+                    if seat_booking.payment:
+                        payment = seat_booking.payment
+                        payment.status = PaymentStatus.FAILED
+                        payment.failure_code = 'TIMEOUT'
+                        payment.failure_message = 'Payment not received within timeout'
+                        payment.save()
+                    
+                    create_notification(
+                        seat_booking.passenger,
+                        NotificationCategory.BOOKING,
+                        'Ride Booking Expired',
+                        f'Your ride booking for seat {seat_booking.seat_number} on {seat_booking.ride.origin} to {seat_booking.ride.destination} has expired due to payment timeout.',
+                        ride=seat_booking.ride
+                    )
+                    
+                    count += 1
+                    logger.info(f"Expired seat booking {seat_booking.id}")
+                    
+            except Exception as e:
+                logger.error(f"Error expiring seat booking {seat_booking.id}: {e}")
         
         logger.info(f"Expired {count} pending bookings")
         return {'expired': count}

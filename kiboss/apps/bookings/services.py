@@ -154,7 +154,7 @@ class BookingService:
                 "tax_rate": float(tax_rate),
                 "taxes": taxes,
                 "total": total,
-                "currency": "USD"
+                "currency": asset.jurisdiction_info.country if hasattr(asset, 'jurisdiction_info') else 'TZS'
             }
         
         # Calculate base price
@@ -187,7 +187,7 @@ class BookingService:
             "tax_rate": float(tax_rate),
             "taxes": taxes,
             "total": total,
-            "currency": "USD"
+            "currency": asset.jurisdiction_info.country if hasattr(asset, 'jurisdiction_info') else 'TZS'
         }
     
     @classmethod

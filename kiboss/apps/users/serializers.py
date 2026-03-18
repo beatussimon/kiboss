@@ -42,11 +42,12 @@ class CorporateWorkerSerializer(serializers.ModelSerializer):
 
 class UserProfileSerializer(serializers.ModelSerializer):
     """Serializer for UserProfile model."""
+    avatar_url = serializers.SerializerMethodField()
     
     class Meta:
         model = UserProfile
         fields = [
-            'id', 'phone', 'avatar', 'bio', 'date_of_birth',
+            'id', 'phone', 'avatar', 'avatar_url', 'bio', 'date_of_birth',
             'address', 'city', 'state', 'country', 'postal_code',
             'latitude', 'longitude',
             'timezone', 'language', 'currency',
@@ -57,6 +58,14 @@ class UserProfileSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'total_bookings', 'total_listings', 'total_rides_as_driver', 'total_rides_as_passenger', 'created_at', 'updated_at']
 
+    def get_avatar_url(self, obj):
+        request = self.context.get('request')
+        if obj.avatar and hasattr(obj.avatar, 'url'):
+            if request is not None:
+                return request.build_absolute_uri(obj.avatar.url)
+            return obj.avatar.url
+        return None
+
 
 class UserWithProfileSerializer(serializers.ModelSerializer):
     """Serializer for User model with profile data."""
@@ -65,6 +74,12 @@ class UserWithProfileSerializer(serializers.ModelSerializer):
     verification_badge = serializers.SerializerMethodField()
     roles = serializers.SerializerMethodField()
     permissions = serializers.SerializerMethodField()
+    
+    followers_count = serializers.SerializerMethodField()
+    following_count = serializers.SerializerMethodField()
+    total_listings = serializers.SerializerMethodField()
+    total_rides = serializers.SerializerMethodField()
+    total_reviews = serializers.SerializerMethodField()
     
     class Meta:
         model = User
@@ -75,6 +90,7 @@ class UserWithProfileSerializer(serializers.ModelSerializer):
             'account_tier', 'verification_tier', 'verification_badge',
             'is_staff', 'is_superuser',
             'profile', 'corporate_profile', 'roles', 'permissions',
+            'followers_count', 'following_count', 'total_listings', 'total_rides', 'total_reviews'
         ]
         read_only_fields = [
             'id', 'is_email_verified', 'is_phone_verified', 'is_identity_verified', 
@@ -98,6 +114,26 @@ class UserWithProfileSerializer(serializers.ModelSerializer):
         roles = obj.user_roles.values_list('role', flat=True)
         perms = RolePermission.objects.filter(role__in=roles).values_list('permission', flat=True)
         return list(set(perms))
+        
+    def get_followers_count(self, obj):
+        from kiboss.apps.social.models import Follow
+        return Follow.objects.filter(following=obj).count()
+
+    def get_following_count(self, obj):
+        from kiboss.apps.social.models import Follow
+        return Follow.objects.filter(follower=obj).count()
+
+    def get_total_listings(self, obj):
+        from kiboss.apps.assets.models import Asset
+        return Asset.objects.filter(owner=obj, is_active=True).count()
+
+    def get_total_rides(self, obj):
+        from kiboss.apps.rides.models import Ride
+        return Ride.objects.filter(driver=obj).count()
+
+    def get_total_reviews(self, obj):
+        from kiboss.apps.ratings.models import Rating
+        return Rating.objects.filter(reviewee=obj, status='APPROVED').count()
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -108,6 +144,12 @@ class UserSerializer(serializers.ModelSerializer):
     roles = serializers.SerializerMethodField()
     permissions = serializers.SerializerMethodField()
     
+    followers_count = serializers.SerializerMethodField()
+    following_count = serializers.SerializerMethodField()
+    total_listings = serializers.SerializerMethodField()
+    total_rides = serializers.SerializerMethodField()
+    total_reviews = serializers.SerializerMethodField()
+    
     class Meta:
         model = User
         fields = [
@@ -116,7 +158,8 @@ class UserSerializer(serializers.ModelSerializer):
             'trust_score', 'total_ratings_count', 'is_blocked',
             'account_tier', 'verification_tier', 'verification_badge',
             'is_staff', 'is_superuser',
-            'roles', 'permissions', 'profile', 'corporate_profile',
+            'profile', 'corporate_profile', 'roles', 'permissions',
+            'followers_count', 'following_count', 'total_listings', 'total_rides', 'total_reviews'
         ]
         read_only_fields = [
             'id', 'is_email_verified', 'is_phone_verified', 'is_identity_verified', 
@@ -140,6 +183,26 @@ class UserSerializer(serializers.ModelSerializer):
         roles = obj.user_roles.values_list('role', flat=True)
         perms = RolePermission.objects.filter(role__in=roles).values_list('permission', flat=True)
         return list(set(perms))
+
+    def get_followers_count(self, obj):
+        from kiboss.apps.social.models import Follow
+        return Follow.objects.filter(following=obj).count()
+
+    def get_following_count(self, obj):
+        from kiboss.apps.social.models import Follow
+        return Follow.objects.filter(follower=obj).count()
+
+    def get_total_listings(self, obj):
+        from kiboss.apps.assets.models import Asset
+        return Asset.objects.filter(owner=obj, is_active=True).count()
+
+    def get_total_rides(self, obj):
+        from kiboss.apps.rides.models import Ride
+        return Ride.objects.filter(driver=obj).count()
+
+    def get_total_reviews(self, obj):
+        from kiboss.apps.ratings.models import Rating
+        return Rating.objects.filter(reviewee=obj, status='APPROVED').count()
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -282,6 +345,10 @@ class PublicUserSerializer(serializers.ModelSerializer):
             
         data['rating'] = float(instance.trust_score) / 20 if hasattr(instance, 'trust_score') and instance.trust_score else 0
         data['review_count'] = getattr(instance, 'total_ratings_count', 0)
+        
+        data['total_listings'] = Asset.objects.filter(owner=instance, is_active=True).count()
+        data['total_rides'] = Ride.objects.filter(driver=instance).count()
+        data['total_reviews'] = data['review_count']
         
         # Check if following
         request = self.context.get('request')

@@ -89,12 +89,13 @@ class AssetSummarySerializer(serializers.ModelSerializer):
     """Summary serializer for assets (used in bookings)."""
     
     is_verified = serializers.SerializerMethodField()
+    photos = AssetPhotoSerializer(many=True, read_only=True)
     
     class Meta:
         model = Asset
         fields = [
             'id', 'name', 'asset_type', 'city', 'country',
-            'average_rating', 'total_reviews', 'is_verified'
+            'average_rating', 'total_reviews', 'is_verified', 'photos'
         ]
         read_only_fields = fields
     

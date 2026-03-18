@@ -4,7 +4,7 @@ Serializers for Payments API
 from rest_framework import serializers
 from kiboss.apps.payments.models import (
     Payment, Dispute, PaymentStatus, PaymentMethod,
-    OfflinePaymentMethod, SubscriptionPayment
+    OfflinePaymentMethod, SubscriptionPayment, UserPaymentMethod, ManualPayment
 )
 
 
@@ -12,7 +12,8 @@ class OfflinePaymentMethodSerializer(serializers.ModelSerializer):
     """Serializer for available offline payment methods."""
     class Meta:
         model = OfflinePaymentMethod
-        fields = ['id', 'network_name', 'payment_number', 'account_name', 'instructions']
+        fields = ['id', 'network_name', 'payment_type', 'payment_number', 'account_name', 
+                 'instructions', 'qr_code', 'qr_instructions', 'display_order', 'is_active']
 
 
 class PaymentSerializer(serializers.ModelSerializer):
@@ -131,3 +132,57 @@ class SubscriptionPaymentSerializer(serializers.ModelSerializer):
             'status', 'admin_notes', 'created_at'
         ]
         read_only_fields = ['id', 'user', 'status', 'admin_notes', 'created_at']
+
+
+class UserPaymentMethodSerializer(serializers.ModelSerializer):
+    """Serializer for user's own payment methods."""
+    class Meta:
+        model = UserPaymentMethod
+        fields = [
+            'id', 'payment_type', 'account_name', 'account_number', 
+            'instructions', 'qr_code', 'is_active', 'is_default', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class ManualPaymentSerializer(serializers.ModelSerializer):
+    """Serializer for manual payment submissions for bookings."""
+    payment_method_details = OfflinePaymentMethodSerializer(source='payment_method', read_only=True)
+    user_payment_method_details = UserPaymentMethodSerializer(source='user_payment_method', read_only=True)
+    booking_details = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ManualPayment
+        fields = [
+            'id', 'booking_type', 'booking_id', 'booking_details',
+            'amount', 'currency', 'payment_method', 'payment_method_details',
+            'user_payment_method', 'user_payment_method_details',
+            'transaction_id', 'confirmation_message', 'receipt_image',
+            'status', 'admin_notes', 'reviewed_at', 'reviewed_by',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'status', 'admin_notes', 'reviewed_at', 'reviewed_by', 'created_at', 'updated_at']
+    
+    def get_booking_details(self, obj):
+        booking = obj.booking
+        if booking:
+            if obj.booking_type == 'ASSET':
+                return {
+                    'type': 'ASSET',
+                    'id': str(booking.id),
+                    'asset_name': booking.asset.name if booking.asset else None,
+                    'renter_email': booking.renter.email if booking.renter else None,
+                    'start_time': booking.start_time.isoformat() if booking.start_time else None,
+                    'end_time': booking.end_time.isoformat() if booking.end_time else None,
+                    'total_price': str(booking.total_price) if booking.total_price else None,
+                }
+            elif obj.booking_type == 'RIDE':
+                return {
+                    'type': 'RIDE',
+                    'id': str(booking.id),
+                    'ride_route': f"{booking.ride.origin} → {booking.ride.destination}" if booking.ride else None,
+                    'passenger_email': booking.passenger.email if booking.passenger else None,
+                    'seat_number': booking.seat_number,
+                    'price': str(booking.price) if booking.price else None,
+                }
+        return None
