@@ -393,9 +393,41 @@ class OfflinePaymentMethodAdmin(admin.ModelAdmin):
             return super().get_readonly_fields(request, obj) + ('is_system_wide',)
         return super().get_readonly_fields(request, obj)
 
+from django import forms
+
+class ManualPaymentAdminForm(forms.ModelForm):
+    class Meta:
+        model = ManualPayment
+        fields = '__all__'
+
+    def clean_transaction_id(self):
+        transaction_id = self.cleaned_data.get('transaction_id')
+        if transaction_id:
+            qs = ManualPayment.objects.filter(transaction_id=transaction_id)
+            if self.instance and self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise forms.ValidationError(f"Transaction ID '{transaction_id}' has already been used.")
+        return transaction_id
+
+class SubscriptionPaymentAdminForm(forms.ModelForm):
+    class Meta:
+        model = SubscriptionPayment
+        fields = '__all__'
+
+    def clean_confirmation_message(self):
+        msg = self.cleaned_data.get('confirmation_message')
+        if msg and len(msg) > 5:
+            qs = SubscriptionPayment.objects.filter(confirmation_message=msg)
+            if self.instance and self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise forms.ValidationError("This Transaction ID / Confirmation Message has already been used.")
+        return msg
 
 @admin.register(SubscriptionPayment)
 class SubscriptionPaymentAdmin(admin.ModelAdmin):
+    form = SubscriptionPaymentAdminForm
     list_display = ('user', 'plan_type', 'amount', 'status', 'created_at')
     list_filter = ('status', 'plan_type')
     search_fields = ('user__email', 'confirmation_message')
@@ -413,8 +445,10 @@ class UserPaymentMethodAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('user')
 
+
 @admin.register(ManualPayment)
 class ManualPaymentAdmin(admin.ModelAdmin):
+    form = ManualPaymentAdminForm
     """Admin for manual payments on bookings."""
     list_display = ('id', 'booking_type', 'amount', 'currency', 'status', 'created_at')
     list_filter = ('status', 'booking_type', 'currency')

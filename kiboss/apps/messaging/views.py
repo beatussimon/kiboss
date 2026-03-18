@@ -86,7 +86,7 @@ class ThreadViewSet(viewsets.ModelViewSet):
             user=self.request.user, role=Role.SUPPORT
         ).exists()
 
-        participant_filter = Q(participants=self.request.user)
+        participant_filter = Q(participants=self.request.user) | Q(ride__driver=self.request.user) | Q(booking__renter=self.request.user) | Q(booking__asset__owner=self.request.user)
         
         # Add logic for Corporate Support Workers
         if hasattr(self.request.user, 'corporate_worker') and self.request.user.corporate_worker.status == 'ACTIVE':
@@ -163,9 +163,15 @@ class ThreadViewSet(viewsets.ModelViewSet):
                 if worker.corporate_profile.user in thread.participants.all():
                     is_corporate_support = True
         
+        is_context_owner = False
+        if thread.ride and thread.ride.driver == request.user:
+            is_context_owner = True
+        if thread.booking and thread.booking.asset.owner == request.user:
+            is_context_owner = True
+            
         is_authorized = (request.user in thread.participants.all()) or (
             is_support_staff and thread.thread_type == ThreadType.SUPPORT
-        ) or is_corporate_support
+        ) or is_corporate_support or is_context_owner
         
         if not is_authorized:
             return Response(
@@ -294,10 +300,16 @@ class ThreadViewSet(viewsets.ModelViewSet):
             if worker.role == 'SUPPORT' and thread.thread_type == ThreadType.SUPPORT:
                 if worker.corporate_profile.user in thread.participants.all():
                     is_corporate_support = True
+                    
+        is_context_owner = False
+        if thread.ride and thread.ride.driver == request.user:
+            is_context_owner = True
+        if thread.booking and thread.booking.asset.owner == request.user:
+            is_context_owner = True
         
         is_authorized = (request.user in thread.participants.all()) or (
             is_support_staff and thread.thread_type == ThreadType.SUPPORT
-        ) or is_corporate_support
+        ) or is_corporate_support or is_context_owner
         
         if not is_authorized:
             return Response(
@@ -488,13 +500,24 @@ class ThreadViewSet(viewsets.ModelViewSet):
         
         # Validate ride exists if provided
         if ride_id:
-            from kiboss.apps.rides.models import Ride
+            from kiboss.apps.rides.models import Ride, SeatBooking
             try:
                 ride = Ride.objects.get(id=ride_id)
                 if thread_type not in [ThreadType.SUPPORT]:
                     if str(ride.driver.id) == str(target_user_id):
                         if str(ride.driver.id) == str(request.user.id):
                             return Response({'error': 'Self conversation', 'code': 'SELF_CONVERSATION'}, status=400)
+                            
+                        # Edge case: Block users from messaging owners if they don't have an active booking
+                        has_booking = SeatBooking.objects.filter(
+                            ride=ride, 
+                            passenger=request.user
+                        ).exclude(
+                            status__in=['CANCELLED', 'NO_SHOW']
+                        ).exists()
+                        
+                        if not has_booking:
+                            return Response({'error': 'You must have an active booking to message the driver', 'code': 'PERMISSION_DENIED'}, status=403)
                     else:
                         return Response({'error': 'Invalid recipient', 'code': 'INVALID_RECIPIENT'}, status=400)
             except Ride.DoesNotExist:
@@ -763,8 +786,14 @@ class MessageViewSet(viewsets.ModelViewSet):
         if thread_id:
             queryset = queryset.filter(thread_id=thread_id)
         
-        # Only show messages from threads user participates in
-        queryset = queryset.filter(thread__participants=self.request.user)
+        from django.db.models import Q
+        # Edge case: Drivers/Owners must see messages for their contexts.
+        queryset = queryset.filter(
+            Q(thread__participants=self.request.user) |
+            Q(thread__ride__driver=self.request.user) |
+            Q(thread__booking__renter=self.request.user) |
+            Q(thread__booking__asset__owner=self.request.user)
+        ).distinct()
         
         return queryset
     

@@ -132,6 +132,14 @@ class Ride(models.Model):
     total_cargo = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'), help_text="Total cargo capacity in kg or units")
     cargo_price = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'), help_text="Price per kg or unit")
     
+    # Advanced Cargo Engine & Booking Policies
+    allowable_free_weight_kg = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    price_per_excess_kg = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    is_cargo_only = models.BooleanField(default=False)
+    flat_cargo_fee = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    max_vehicle_weight_capacity_kg = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    payment_required_before_approval = models.BooleanField(default=False)
+    
     # Seat management
     reserved_seats = models.PositiveIntegerField(default=0)
     confirmed_seats = models.PositiveIntegerField(default=0)
@@ -372,6 +380,7 @@ class SeatBooking(models.Model):
     # Passenger details
     passenger_notes = models.TextField(blank=True)
     luggage_count = models.PositiveIntegerField(default=0)
+    cargo_weight_kg = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
     
     # Check-in
     checked_in_at = models.DateTimeField(blank=True, null=True)

@@ -243,7 +243,47 @@ class RideViewSet(viewsets.ModelViewSet):
                     raise DRFValidationError({'assigned_driver': 'Invalid or inactive driver.'})
         
         serializer.save(**extra_kwargs)
-    
+        
+    def get_object(self):
+        """
+        Force visibility for users with an active booking relationship,
+        bypassing generic get_queryset filters.
+        """
+        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+        filter_kwargs = {self.lookup_field: self.kwargs[lookup_url_kwarg]}
+        from django.shortcuts import get_object_or_404
+
+        # Use unfiltered queryset for the base lookup
+        base_qs = Ride.objects.select_related('driver', 'vehicle_asset').prefetch_related('stops')
+        obj = get_object_or_404(base_qs, **filter_kwargs)
+
+        is_visible = False
+        from kiboss.apps.rides.models import RideStatus
+
+        # Authenticated users: check relationship FIRST before status gate
+        if self.request.user.is_authenticated:
+            if obj.driver == self.request.user:
+                is_visible = True
+            elif obj.seat_bookings.filter(passenger=self.request.user).exists():
+                is_visible = True
+            elif obj.cargo_bookings.filter(sender=self.request.user).exists():
+                is_visible = True
+
+        # Public (non-booked) visibility: only for bookable/browsable statuses
+        if not is_visible and obj.status in [RideStatus.OPEN, RideStatus.SCHEDULED, RideStatus.FULL]:
+            is_visible = True
+
+        # Staff always has full visibility
+        if not is_visible and self.request.user.is_authenticated and self.request.user.is_staff:
+            is_visible = True
+
+        if not is_visible:
+            from django.http import Http404
+            raise Http404("No Ride matches the given query.")
+
+        self.check_object_permissions(self.request, obj)
+        return obj
+
     def get_queryset(self):
         from kiboss.apps.rides.models import RideStatus
         queryset = Ride.objects.select_related('driver', 'vehicle_asset').prefetch_related('stops').order_by('-departure_time')
@@ -262,9 +302,16 @@ class RideViewSet(viewsets.ModelViewSet):
         if status_param:
             queryset = queryset.filter(status=status_param)
         elif not is_own_rides:
-            # Default: exclude FULL and CANCELLED rides from public listings
-            # Users can still see their own FULL rides (they'll be handled above)
-            queryset = queryset.exclude(status__in=[RideStatus.FULL, RideStatus.CANCELLED])
+            # Bypass filters if requesting user is Owner/Provider or Customer with a booking
+            if self.request.user.is_authenticated:
+                queryset = queryset.filter(
+                    Q(driver=self.request.user) | 
+                    Q(seat_bookings__passenger=self.request.user) |
+                    Q(cargo_bookings__sender=self.request.user) |
+                    Q(status__in=[RideStatus.OPEN, RideStatus.SCHEDULED])
+                ).distinct()
+            else:
+                queryset = queryset.filter(status__in=[RideStatus.OPEN, RideStatus.SCHEDULED])
         
         # Filter by origin/destination
         origin = self.request.query_params.get('origin')
@@ -478,20 +525,15 @@ class RideViewSet(viewsets.ModelViewSet):
                 {'error': 'You cannot book a seat on your own ride'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+            
+        data = request.data.copy()
+        data['ride_id'] = str(ride.id)
         
-        # Get seat number from request
-        seat_number = request.data.get('seat_number')
-        if not seat_number:
-            return Response(
-                {'error': 'seat_number is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Get other optional fields
-        pickup_stop_id = request.data.get('pickup_stop_id')
-        dropoff_stop_id = request.data.get('dropoff_stop_id')
-        passenger_notes = request.data.get('passenger_notes', '')
-        luggage_count = request.data.get('luggage_count', 0)
+        serializer = SeatBookingCreateSerializer(data=data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+        seat_number = serializer.validated_data.get('seat_number', 0)
         
         # Import here to avoid circular imports
         from kiboss.apps.rides.models import SeatBooking, SeatBookingStatus
@@ -504,17 +546,18 @@ class RideViewSet(viewsets.ModelViewSet):
         try:
             with lock_manager.lock(lock_key, ttl=30, max_retries=3):
                 # Check if seat is available
-                existing = SeatBooking.objects.filter(
-                    ride=ride,
-                    seat_number=seat_number,
-                    status__in=[SeatBookingStatus.RESERVED, SeatBookingStatus.CONFIRMED]
-                ).exists()
-                
-                if existing:
-                    return Response(
-                        {'error': f'Seat {seat_number} is already taken'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
+                if seat_number > 0:
+                    existing = SeatBooking.objects.filter(
+                        ride=ride,
+                        seat_number=seat_number,
+                        status__in=[SeatBookingStatus.RESERVED, SeatBookingStatus.CONFIRMED]
+                    ).exists()
+                    
+                    if existing:
+                        return Response(
+                            {'error': f'Seat {seat_number} is already taken'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
                 
                 # Check ride is still available
                 if ride.is_full():
@@ -531,17 +574,22 @@ class RideViewSet(viewsets.ModelViewSet):
                         passenger=request.user,
                         seat_number=seat_number,
                         status=SeatBookingStatus.RESERVED,
-                        price=locked_ride.seat_price,
+                        price=locked_ride.seat_price + serializer.validated_data.get('extra_fees', 0),
                         currency=locked_ride.currency,
-                        pickup_stop_id=pickup_stop_id,
-                        dropoff_stop_id=dropoff_stop_id,
-                        passenger_notes=passenger_notes,
-                        luggage_count=luggage_count
+                        pickup_stop_id=serializer.validated_data.get('pickup_stop_id'),
+                        dropoff_stop_id=serializer.validated_data.get('dropoff_stop_id'),
+                        passenger_notes=serializer.validated_data.get('passenger_notes', ''),
+                        luggage_count=serializer.validated_data.get('luggage_count', 0),
+                        cargo_weight_kg=serializer.validated_data.get('cargo_weight_kg', 0)
                     )
                     
-                    # Update ride seat counts
-                    locked_ride.reserved_seats += 1
-                    locked_ride.save(update_fields=['reserved_seats', 'updated_at'])
+                    # Update ride counts
+                    if seat_number > 0:
+                        locked_ride.reserved_seats += 1
+                    if serializer.validated_data.get('cargo_weight_kg', 0) > 0:
+                        locked_ride.reserved_cargo += serializer.validated_data['cargo_weight_kg']
+                        
+                    locked_ride.save(update_fields=['reserved_seats', 'reserved_cargo', 'updated_at'])
                 
                 # Send notifications to driver and passenger
                 try:
@@ -701,7 +749,7 @@ class SeatBookingViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         
         ride = serializer.validated_data['ride']
-        seat_number = serializer.validated_data['seat_number']
+        seat_number = serializer.validated_data.get('seat_number', 0)
         
         if ride.driver == request.user:
             return Response(
@@ -718,17 +766,18 @@ class SeatBookingViewSet(viewsets.ModelViewSet):
                 # Re-validate seat availability inside lock
                 from kiboss.apps.rides.models import SeatBooking, SeatBookingStatus
                 
-                existing = SeatBooking.objects.filter(
-                    ride=ride,
-                    seat_number=seat_number,
-                    status__in=[SeatBookingStatus.RESERVED, SeatBookingStatus.CONFIRMED]
-                ).exists()
-                
-                if existing:
-                    return Response(
-                        {'error': f'Seat {seat_number} is already taken'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
+                if seat_number > 0:
+                    existing = SeatBooking.objects.filter(
+                        ride=ride,
+                        seat_number=seat_number,
+                        status__in=[SeatBookingStatus.RESERVED, SeatBookingStatus.CONFIRMED]
+                    ).exists()
+                    
+                    if existing:
+                        return Response(
+                            {'error': f'Seat {seat_number} is already taken'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
                 
                 # Check ride is still available
                 if ride.is_full():
@@ -745,17 +794,23 @@ class SeatBookingViewSet(viewsets.ModelViewSet):
                         passenger=request.user,
                         seat_number=seat_number,
                         status=SeatBookingStatus.RESERVED,
-                        price=locked_ride.seat_price,
+                        price=locked_ride.seat_price + serializer.validated_data.get('extra_fees', 0),
                         currency=locked_ride.currency,
                         pickup_stop_id=serializer.validated_data.get('pickup_stop_id'),
                         dropoff_stop_id=serializer.validated_data.get('dropoff_stop_id'),
                         passenger_notes=serializer.validated_data.get('passenger_notes', ''),
-                        luggage_count=serializer.validated_data.get('luggage_count', 0)
+                        luggage_count=serializer.validated_data.get('luggage_count', 0),
+                        cargo_weight_kg=serializer.validated_data.get('cargo_weight_kg', 0)
                     )
                     
-                    # Update ride seat counts
-                    locked_ride.reserved_seats += 1
-                    locked_ride.save(update_fields=['reserved_seats', 'updated_at'])
+                    # Update ride counts
+                    if seat_number > 0:
+                        locked_ride.reserved_seats += 1
+                        
+                    if serializer.validated_data.get('cargo_weight_kg', 0) > 0:
+                        locked_ride.reserved_cargo += serializer.validated_data['cargo_weight_kg']
+                        
+                    locked_ride.save(update_fields=['reserved_seats', 'reserved_cargo', 'updated_at'])
                 
                 response_serializer = SeatBookingSerializer(booking)
                 return Response(response_serializer.data, status=status.HTTP_201_CREATED)
@@ -792,6 +847,16 @@ class SeatBookingViewSet(viewsets.ModelViewSet):
     def cancel(self, request, pk=None):
         """Cancel a seat booking."""
         booking = self.get_object()
+        
+        # Edge case: Verify ownership
+        if booking.passenger != request.user and booking.ride.driver != request.user:
+            return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
+            
+        # Edge case: Prevent canceling already cancelled/completed bookings
+        from kiboss.apps.rides.models import SeatBookingStatus
+        if booking.status in [SeatBookingStatus.CANCELLED, SeatBookingStatus.COMPLETED]:
+            return Response({'error': f'Booking is already {booking.status.lower()}'}, status=status.HTTP_400_BAD_REQUEST)
+            
         reason = request.data.get('reason', '')
         booking.cancel(reason=reason)
         serializer = self.get_serializer(booking)

@@ -39,11 +39,12 @@ class SeatBookingSerializer(serializers.ModelSerializer):
     pickup_stop_details = RideStopSerializer(source='pickup_stop', read_only=True)
     dropoff_stop_details = RideStopSerializer(source='dropoff_stop', read_only=True)
     booking_category = serializers.SerializerMethodField()
+    ride_details = serializers.SerializerMethodField(source='ride')
     
     class Meta:
         model = SeatBooking
         fields = [
-            'id', 'ride', 'passenger', 'seat_number', 'status',
+            'id', 'ride', 'ride_details', 'passenger', 'seat_number', 'status',
             'pickup_stop', 'pickup_stop_details',
             'dropoff_stop', 'dropoff_stop_details',
             'price', 'currency', 'payment',
@@ -57,16 +58,21 @@ class SeatBookingSerializer(serializers.ModelSerializer):
 
     def get_booking_category(self, obj):
         return 'ride'
+        
+    def get_ride_details(self, obj):
+        from kiboss.apps.rides.serializers import RideListSerializer
+        return RideListSerializer(obj.ride).data
 
 
 class SeatBookingCreateSerializer(serializers.Serializer):
     """Serializer for creating seat bookings with validation."""
     ride_id = serializers.UUIDField()
-    seat_number = serializers.IntegerField(min_value=1)
+    seat_number = serializers.IntegerField(min_value=0, default=0, required=False)
     pickup_stop_id = serializers.UUIDField(required=False, allow_null=True)
     dropoff_stop_id = serializers.UUIDField(required=False, allow_null=True)
     passenger_notes = serializers.CharField(required=False, allow_blank=True)
     luggage_count = serializers.IntegerField(min_value=0, default=0)
+    cargo_weight_kg = serializers.DecimalField(max_digits=10, decimal_places=2, default=0.00, required=False)
     
     def validate(self, data):
         from kiboss.apps.rides.models import Ride, SeatBooking, RideStatus, SeatBookingStatus
@@ -91,15 +97,55 @@ class SeatBookingCreateSerializer(serializers.Serializer):
         if ride.departure_time < timezone.now():
             raise serializers.ValidationError({'ride_id': 'Ride has already departed'})
         
-        # Check if seat is already taken
-        existing = SeatBooking.objects.filter(
-            ride=ride,
-            seat_number=seat_number,
-            status__in=[SeatBookingStatus.RESERVED, SeatBookingStatus.CONFIRMED]
-        ).exists()
+        from decimal import Decimal
+        from django.db.models import Sum
+
+        cargo_weight_kg = data.get('cargo_weight_kg', Decimal('0.00'))
+        if cargo_weight_kg < 0:
+            raise serializers.ValidationError({'cargo_weight_kg': 'Weight cannot be negative'})
+
+        seat_number = data.get('seat_number', 0)
+        if ride.is_cargo_only and seat_number > 0:
+            raise serializers.ValidationError({'seat_number': 'Ride is cargo only; no passengers allowed'})
+        elif not ride.is_cargo_only and seat_number <= 0 and cargo_weight_kg <= 0:
+            raise serializers.ValidationError('Must provide either a valid seat number or cargo weight')
+
+        # Check total vehicle capacity
+        if ride.max_vehicle_weight_capacity_kg > 0 and cargo_weight_kg > 0:
+            current_cargo = SeatBooking.objects.filter(
+                ride=ride, status__in=[SeatBookingStatus.RESERVED, SeatBookingStatus.CONFIRMED]
+            ).aggregate(total=Sum('cargo_weight_kg'))['total'] or Decimal('0.00')
+            if current_cargo + cargo_weight_kg > ride.max_vehicle_weight_capacity_kg:
+                raise serializers.ValidationError({'cargo_weight_kg': f'Exceeds max vehicle capacity. Available: {max(Decimal("0.00"), ride.max_vehicle_weight_capacity_kg - current_cargo)} kg'})
+
+        if ride.payment_required_before_approval:
+            from kiboss.apps.payments.models import OfflinePaymentMethod
+            has_methods = OfflinePaymentMethod.objects.filter(user=ride.driver, is_active=True).exists()
+            if not has_methods:
+                raise serializers.ValidationError({'ride_id': 'Driver requires payment before approval, but has no payment methods set up. Booking cannot proceed.'})
+
+        # Calculate Extra Fees
+        extra_fees = Decimal('0.00')
+        if ride.is_cargo_only:
+            extra_fees += ride.flat_cargo_fee
+            if cargo_weight_kg > ride.allowable_free_weight_kg:
+                extra_fees += (cargo_weight_kg - ride.allowable_free_weight_kg) * ride.price_per_excess_kg
+        else:
+            if cargo_weight_kg > ride.allowable_free_weight_kg:
+                extra_fees += (cargo_weight_kg - ride.allowable_free_weight_kg) * ride.price_per_excess_kg
         
-        if existing:
-            raise serializers.ValidationError({'seat_number': f'Seat {seat_number} is already taken'})
+        data['extra_fees'] = extra_fees
+
+        # Check if seat is already taken
+        if seat_number > 0:
+            existing = SeatBooking.objects.filter(
+                ride=ride,
+                seat_number=seat_number,
+                status__in=[SeatBookingStatus.RESERVED, SeatBookingStatus.CONFIRMED]
+            ).exists()
+            
+            if existing:
+                raise serializers.ValidationError({'seat_number': f'Seat {seat_number} is already taken'})
         
         # Validate stop IDs if provided
         pickup_stop_id = data.get('pickup_stop_id')

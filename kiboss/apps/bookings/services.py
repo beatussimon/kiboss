@@ -392,6 +392,11 @@ class BookingService:
         """
         booking = Booking.objects.select_for_update().get(id=booking_id)
         
+        # Idempotency check: if already cancelled, just return it
+        if booking.status == BookingStatus.CANCELLED:
+            logger.info(f"Booking {booking_id} is already cancelled. Returning idempotently.")
+            return booking
+
         # Check if cancellable
         if booking.status not in [BookingStatus.PENDING, BookingStatus.CONFIRMED]:
             raise ValueError(f"Cannot cancel booking in {booking.status} status")
@@ -402,11 +407,16 @@ class BookingService:
         else:
             fee = Decimal('0.00')
         
+        # Determine actor type safely (owners who are staff shouldn't need admin justification)
+        actor_role = 'USER'
+        if actor.is_staff and actor != booking.renter and actor != booking.asset.owner:
+            actor_role = 'ADMIN'
+
         # Perform transition
         try:
             booking.transition_to(
                 BookingStatus.CANCELLED,
-                actor_type='USER' if not actor.is_staff else 'ADMIN',
+                actor_type=actor_role,
                 actor_id=actor.id,
                 reason=reason,
                 justification=justification
@@ -423,7 +433,7 @@ class BookingService:
             booking,
             'CANCELLED',
             f'Booking cancelled. Cancellation fee: {fee}',
-            'USER' if not actor.is_staff else 'ADMIN',
+            actor_role,
             actor.id,
             {'reason': reason, 'fee': str(fee)}
         )
