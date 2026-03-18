@@ -410,21 +410,29 @@ class UserPaymentMethodViewSet(viewsets.ModelViewSet):
     queryset = UserPaymentMethod.objects.all().order_by('-created_at')
     serializer_class = UserPaymentMethodSerializer
     permission_classes = [permissions.IsAuthenticated]
-    
+
     def get_queryset(self):
-        # Users can only see and manage their own payment methods
-        return UserPaymentMethod.objects.filter(user=self.request.user)
-    
+        # Allow ?owner=<user_id> so checkout can load the asset/ride owner's methods
+        owner_id = self.request.query_params.get('owner')
+        if owner_id:
+            # Public read: return active methods of the specified owner
+            return UserPaymentMethod.objects.filter(
+                user_id=owner_id, is_active=True
+            ).order_by('-is_default', '-created_at')
+
+        # Default: only the current user's own methods (full CRUD)
+        return UserPaymentMethod.objects.filter(
+            user=self.request.user
+        ).order_by('-is_default', '-created_at')
+
     def perform_create(self, serializer):
-        # If this is set as default, unset other defaults
         if serializer.validated_data.get('is_default', False):
             UserPaymentMethod.objects.filter(
                 user=self.request.user, is_default=True
             ).update(is_default=False)
         serializer.save(user=self.request.user)
-    
+
     def perform_update(self, serializer):
-        # If this is set as default, unset other defaults
         if serializer.validated_data.get('is_default', False):
             UserPaymentMethod.objects.filter(
                 user=self.request.user, is_default=True

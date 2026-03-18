@@ -26,7 +26,17 @@ class SystemConfiguration(models.Model):
         default="Standard KIBOSS Business Terms: All assets must be verified. Stamped legal documents required.",
         help_text="Terms and conditions shown during business registration"
     )
-    
+
+    # Landing Page Hero
+    hero_image = models.ImageField(
+        upload_to='hero/', blank=True, null=True,
+        help_text="Upload a custom hero background image for the landing page"
+    )
+    hero_image_url = models.URLField(
+        blank=True,
+        help_text="External URL for hero image (overrides uploaded image if set)"
+    )
+
     # Global Config
     updated_at = models.DateTimeField(auto_now=True)
 

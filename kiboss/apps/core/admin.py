@@ -230,13 +230,27 @@ def register_all_models():
     from kiboss.apps.users.admin import UserAdmin, DeviceAdmin, BlacklistedTokenAdmin
     from kiboss.apps.core.models import SystemConfiguration
     from django.contrib.admin import ModelAdmin
-    
+
+    class SystemConfigAdmin(ModelAdmin):
+        fieldsets = [
+            ('Business Tiers', {'fields': [
+                'business_registration_fee',
+                'business_subscription_monthly',
+                'business_subscription_yearly',
+                'business_terms_conditions',
+            ]}),
+            ('Landing Page', {'fields': [
+                'hero_image',
+                'hero_image_url',
+            ], 'description': 'Upload a hero image OR provide an external URL. URL takes priority.'}),
+        ]
+
     admin_site.register(User, UserAdmin)
     admin_site.register(UserProfile, ModelAdmin)
     admin_site.register(TrustScore, ModelAdmin)
     admin_site.register(Device, DeviceAdmin)
     admin_site.register(BlacklistedToken, BlacklistedTokenAdmin)
-    admin_site.register(SystemConfiguration, ModelAdmin)
+    admin_site.register(SystemConfiguration, SystemConfigAdmin)
     
     # Assets App
     from kiboss.apps.assets.models import (

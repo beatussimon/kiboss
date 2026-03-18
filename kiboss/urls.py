@@ -74,6 +74,7 @@ urlpatterns = [
     path('api/v1/audits/', include('kiboss.apps.audits.urls')),
     path('api/v1/common/', include('kiboss.apps.common.urls')),
     path('api/v1/tasks/', include('kiboss.apps.tasks.urls')),
+    path('api/v1/core/', include('kiboss.apps.core.urls')),
 ]
 
 if settings.DEBUG:

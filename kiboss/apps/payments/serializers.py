@@ -10,10 +10,17 @@ from kiboss.apps.payments.models import (
 
 class OfflinePaymentMethodSerializer(serializers.ModelSerializer):
     """Serializer for available offline payment methods."""
+    # `name` alias — frontend uses method.name, network_name is the real field
+    name = serializers.CharField(source='network_name', read_only=True)
+
     class Meta:
         model = OfflinePaymentMethod
-        fields = ['id', 'network_name', 'payment_type', 'payment_number', 'account_name', 
-                 'instructions', 'qr_code', 'qr_instructions', 'display_order', 'is_active']
+        fields = [
+            'id', 'name', 'network_name', 'payment_type', 'payment_number',
+            'account_name', 'instructions', 'qr_code', 'qr_code_image',
+            'qr_instructions', 'lipa_namba', 'display_order',
+            'is_active', 'is_system_wide',
+        ]
 
 
 class PaymentSerializer(serializers.ModelSerializer):
