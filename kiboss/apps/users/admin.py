@@ -29,8 +29,9 @@ class UserRoleInline(admin.TabularInline):
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
-    list_display = ('email', 'first_name', 'last_name', 'is_active', 'verification_tier', 'trust_score')
-    list_filter = ('is_active', 'is_staff', 'is_superuser', 'verification_tier')
+    list_display = ('email', 'first_name', 'last_name', 'is_active', 'account_tier', 'verification_tier', 'trust_score')
+    list_editable = ('account_tier', 'verification_tier')
+    list_filter = ('is_active', 'is_staff', 'is_superuser', 'account_tier', 'verification_tier')
     search_fields = ('email', 'first_name', 'last_name')
     ordering = ('email',)
     inlines = (UserProfileInline, CorporateProfileInline, TrustScoreInline, UserRoleInline)
@@ -39,7 +40,7 @@ class UserAdmin(BaseUserAdmin):
         (None, {'fields': ('email', 'password')}),
         ('Personal Info', {'fields': ('first_name', 'last_name')}),
         ('Permissions', {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
-        ('Verification', {'fields': ('is_email_verified', 'is_phone_verified', 'is_identity_verified', 'verification_tier')}),
+        ('Verification', {'fields': ('is_email_verified', 'is_phone_verified', 'is_identity_verified', 'account_tier', 'verification_tier')}),
         ('Trust & Safety', {'fields': ('trust_score', 'total_ratings_count', 'is_blocked', 'block_reason')}),
         ('Important dates', {'fields': ('last_login', 'date_joined')}),
     )

@@ -226,8 +226,17 @@ def register_all_models():
     """
     
     # Users App
-    from kiboss.apps.users.models import User, UserProfile, TrustScore, Device, BlacklistedToken
-    from kiboss.apps.users.admin import UserAdmin, DeviceAdmin, BlacklistedTokenAdmin
+    from kiboss.apps.users.models import (
+        User, UserProfile, TrustScore, Device, BlacklistedToken,
+        UserSubscription, CorporateProfile, BusinessSubscription, CorporateWorker
+    )
+    from kiboss.apps.users.verification_models import (
+        VerificationRequest, VerificationDocument, VerificationLog
+    )
+    from kiboss.apps.users.admin import (
+        UserAdmin, DeviceAdmin, BlacklistedTokenAdmin,
+        UserSubscriptionAdmin, CorporateProfileAdmin, BusinessSubscriptionAdmin
+    )
     from kiboss.apps.core.models import SystemConfiguration
     from django.contrib.admin import ModelAdmin
 
@@ -245,12 +254,25 @@ def register_all_models():
             ], 'description': 'Upload a hero image OR provide an external URL. URL takes priority.'}),
         ]
 
+    class VerificationRequestAdmin(ModelAdmin):
+        list_display = ('user', 'verification_type', 'status', 'created_at', 'reviewed_at')
+        list_filter = ('verification_type', 'status')
+        search_fields = ('user__email', 'document_number')
+        readonly_fields = ('created_at', 'updated_at')
+
     admin_site.register(User, UserAdmin)
     admin_site.register(UserProfile, ModelAdmin)
     admin_site.register(TrustScore, ModelAdmin)
     admin_site.register(Device, DeviceAdmin)
     admin_site.register(BlacklistedToken, BlacklistedTokenAdmin)
     admin_site.register(SystemConfiguration, SystemConfigAdmin)
+    admin_site.register(UserSubscription, UserSubscriptionAdmin)
+    admin_site.register(CorporateProfile, CorporateProfileAdmin)
+    admin_site.register(BusinessSubscription, BusinessSubscriptionAdmin)
+    admin_site.register(CorporateWorker, ModelAdmin)
+    admin_site.register(VerificationRequest, VerificationRequestAdmin)
+    admin_site.register(VerificationDocument, ModelAdmin)
+    admin_site.register(VerificationLog, ModelAdmin)
     
     # Assets App
     from kiboss.apps.assets.models import (
@@ -298,11 +320,23 @@ def register_all_models():
     admin_site.register(RideSchedule, RideScheduleAdmin)
     
     # Payments App
-    from kiboss.apps.payments.models import Payment, Dispute
-    from kiboss.apps.payments.admin import PaymentAdmin, DisputeAdmin
+    from kiboss.apps.payments.models import (
+        Payment, Dispute, OfflinePaymentMethod, SubscriptionPayment,
+        UserPaymentMethod, ManualPayment, ManualPaymentReceipt
+    )
+    from kiboss.apps.payments.admin import (
+        PaymentAdmin, DisputeAdmin, OfflinePaymentMethodAdmin,
+        SubscriptionPaymentAdmin, UserPaymentMethodAdmin,
+        ManualPaymentAdmin, ManualPaymentReceiptAdmin
+    )
     
     admin_site.register(Payment, PaymentAdmin)
     admin_site.register(Dispute, DisputeAdmin)
+    admin_site.register(OfflinePaymentMethod, OfflinePaymentMethodAdmin)
+    admin_site.register(SubscriptionPayment, SubscriptionPaymentAdmin)
+    admin_site.register(UserPaymentMethod, UserPaymentMethodAdmin)
+    admin_site.register(ManualPayment, ManualPaymentAdmin)
+    admin_site.register(ManualPaymentReceipt, ManualPaymentReceiptAdmin)
     
     # Contracts App
     from kiboss.apps.contracts.models import Contract, ContractVersion
