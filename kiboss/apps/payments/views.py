@@ -8,14 +8,14 @@ from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 from kiboss.apps.payments.models import (
-    Payment, Dispute, PaymentStatus, 
-    OfflinePaymentMethod, SubscriptionPayment, UserPaymentMethod, ManualPayment
+    OfflinePaymentMethod, UserPaymentMethod, ManualPayment,
+    Payment, PaymentStatus, Dispute
 )
 from kiboss.apps.payments.serializers import (
     PaymentSerializer, PaymentDetailSerializer,
     PaymentCreateSerializer, PaymentActionSerializer,
     DisputeSerializer, DisputeCreateSerializer,
-    OfflinePaymentMethodSerializer, SubscriptionPaymentSerializer,
+    OfflinePaymentMethodSerializer,
     UserPaymentMethodSerializer, ManualPaymentSerializer
 )
 
@@ -335,75 +335,6 @@ class OfflinePaymentMethodViewSet(viewsets.ModelViewSet):
             
         serializer.save(is_system_wide=is_system_wide)
 
-class SubscriptionPaymentViewSet(viewsets.ModelViewSet):
-    """ViewSet for users to submit manual payment proofs for subscriptions."""
-    queryset = SubscriptionPayment.objects.all().order_by('-created_at')
-    serializer_class = SubscriptionPaymentSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        # Users can only see their own subscription payments
-        # Admins can see all subscription payments
-        if self.request.user.is_staff or self.request.user.is_superuser:
-            return self.queryset
-        return self.queryset.filter(user=self.request.user)
-        
-    def perform_create(self, serializer):
-        from kiboss.apps.payments.models import SubscriptionPayment
-        serializer.save(user=self.request.user, status=SubscriptionPayment.Status.PENDING)
-    
-    @action(detail=True, methods=['post'])
-    def approve(self, request, pk=None):
-        """Approve a subscription payment (admin only)."""
-        if not request.user.is_staff and not request.user.is_superuser:
-            return Response(
-                {'error': 'Only admins can approve subscription payments'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        subscription_payment = self.get_object()
-        
-        if subscription_payment.status != SubscriptionPayment.Status.PENDING:
-            return Response(
-                {'error': 'Subscription payment is not pending approval'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        subscription_payment.status = SubscriptionPayment.Status.APPROVED
-        subscription_payment.admin_notes = request.data.get('admin_notes', '')
-        subscription_payment.reviewed_at = timezone.now()
-        subscription_payment.reviewed_by = request.user
-        subscription_payment.save()
-        
-        serializer = SubscriptionPaymentSerializer(subscription_payment)
-        return Response(serializer.data)
-    
-    @action(detail=True, methods=['post'])
-    def reject(self, request, pk=None):
-        """Reject a subscription payment (admin only)."""
-        if not request.user.is_staff and not request.user.is_superuser:
-            return Response(
-                {'error': 'Only admins can reject subscription payments'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        subscription_payment = self.get_object()
-        
-        if subscription_payment.status != SubscriptionPayment.Status.PENDING:
-            return Response(
-                {'error': 'Subscription payment is not pending approval'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        subscription_payment.status = SubscriptionPayment.Status.REJECTED
-        subscription_payment.admin_notes = request.data.get('admin_notes', '')
-        subscription_payment.reviewed_at = timezone.now()
-        subscription_payment.reviewed_by = request.user
-        subscription_payment.save()
-        
-        serializer = SubscriptionPaymentSerializer(subscription_payment)
-        return Response(serializer.data)
-
 
 class UserPaymentMethodViewSet(viewsets.ModelViewSet):
     """ViewSet for users to manage their own payment methods."""
@@ -451,21 +382,66 @@ class ManualPaymentViewSet(viewsets.ModelViewSet):
         if self.request.user.is_staff or self.request.user.is_superuser:
             return ManualPayment.objects.all()
         
-        # Get bookings where user is the renter/passenger
+        # Get bookings where user is the renter/passenger/subscriber
         from kiboss.apps.bookings.models import Booking
         from kiboss.apps.rides.models import SeatBooking
+        from kiboss.apps.users.models import UserSubscription, BusinessSubscription
         
         user_asset_bookings = Booking.objects.filter(renter=self.request.user).values_list('id', flat=True)
         user_ride_bookings = SeatBooking.objects.filter(passenger=self.request.user).values_list('id', flat=True)
-        
+        user_subscriptions = UserSubscription.objects.filter(user=self.request.user).values_list('id', flat=True)
+        business_subscriptions = []
+        if hasattr(self.request.user, 'corporate_profile'):
+            business_subscriptions = BusinessSubscription.objects.filter(profile=self.request.user.corporate_profile).values_list('id', flat=True)
+            
         return ManualPayment.objects.filter(
             booking_type='ASSET', booking_id__in=user_asset_bookings
         ) | ManualPayment.objects.filter(
             booking_type='RIDE', booking_id__in=user_ride_bookings
+        ) | ManualPayment.objects.filter(
+            booking_type='SUBSCRIPTION', booking_id__in=list(user_subscriptions) + list(business_subscriptions)
         )
     
+    def create(self, request, *args, **kwargs):
+        data = request.data.copy()
+        # If it's a subscription and no booking_id provided, create a pending subscription
+        if data.get('booking_type') == 'SUBSCRIPTION' and not data.get('booking_id'):
+            from kiboss.apps.users.models import UserSubscription
+            plan_type = data.get('plan_type', 'PLUS')
+            # Check if one already exists
+            sub = UserSubscription.objects.filter(user=request.user, status='PENDING').first()
+            if not sub:
+                sub = UserSubscription.objects.create(
+                    user=request.user,
+                    plan_type=plan_type,
+                    status='PENDING'
+                )
+            data['booking_id'] = str(sub.id)
+            
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        
     def perform_create(self, serializer):
-        serializer.save(status=ManualPayment.Status.PENDING)
+        payment = serializer.save(status=ManualPayment.Status.PENDING)
+        
+        # Create a StaffTask for subscription payments
+        if payment.booking_type == 'SUBSCRIPTION':
+            from kiboss.apps.tasks.models import StaffTask, TaskType
+            from django.contrib.contenttypes.models import ContentType
+            
+            account_name = payment.user_payment_method.account_name if payment.user_payment_method else 'User'
+            
+            StaffTask.objects.create(
+                title=f"Verify Subscription Payment for {account_name}",
+                description=f"Manual payment submitted for subscription upgrade. Amount: {payment.amount} {payment.currency}. Please verify the transaction receipt.",
+                task_type=TaskType.SUBSCRIPTION_VERIFICATION,
+                content_type=ContentType.objects.get_for_model(payment),
+                object_id=payment.id,
+                priority='HIGH'
+            )
     
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
@@ -500,6 +476,21 @@ class ManualPaymentViewSet(viewsets.ModelViewSet):
                 from kiboss.apps.rides.models import SeatBooking, SeatBookingStatus
                 booking.status = SeatBookingStatus.CONFIRMED
                 booking.save()
+            elif manual_payment.booking_type == 'SUBSCRIPTION':
+                from datetime import timedelta
+                # Update subscription
+                duration_days = 30
+                if hasattr(booking, 'plan_type') and booking.plan_type == 'YEARLY':
+                    duration_days = 365
+                booking.status = 'ACTIVE'
+                booking.start_date = timezone.now()
+                booking.end_date = timezone.now() + timedelta(days=duration_days)
+                booking.save()
+                
+                # Also upgrade the user's account tier
+                if hasattr(booking, 'user'):
+                    booking.user.account_tier = booking.plan_type
+                    booking.user.save(update_fields=['account_tier', 'updated_at'])
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"Error updating booking status: {e}")
@@ -508,13 +499,23 @@ class ManualPaymentViewSet(viewsets.ModelViewSet):
         try:
             from kiboss.apps.notifications.services import NotificationService
             from kiboss.apps.notifications.models import NotificationCategory
-            NotificationService.create_notification(
-                user=booking.renter if manual_payment.booking_type == 'ASSET' else booking.passenger,
-                category=NotificationCategory.PAYMENT,
-                notification_type='MANUAL_PAYMENT_APPROVED',
-                title='Payment Approved',
-                message=f'Your manual payment of {manual_payment.amount} {manual_payment.currency} has been approved.',
-            )
+            
+            notification_user = None
+            if manual_payment.booking_type == 'ASSET':
+                notification_user = booking.renter
+            elif manual_payment.booking_type == 'RIDE':
+                notification_user = booking.passenger
+            elif manual_payment.booking_type == 'SUBSCRIPTION':
+                notification_user = booking.user if hasattr(booking, 'user') else (booking.profile.user if hasattr(booking, 'profile') else None)
+            
+            if notification_user:
+                NotificationService.create_notification(
+                    user=notification_user,
+                    category=NotificationCategory.PAYMENT,
+                    notification_type='MANUAL_PAYMENT_APPROVED',
+                    title='Payment Approved',
+                    message=f'Your manual payment of {manual_payment.amount} {manual_payment.currency} has been approved.',
+                )
         except Exception:
             pass
         
@@ -549,13 +550,23 @@ class ManualPaymentViewSet(viewsets.ModelViewSet):
             booking = manual_payment.booking
             from kiboss.apps.notifications.services import NotificationService
             from kiboss.apps.notifications.models import NotificationCategory
-            NotificationService.create_notification(
-                user=booking.renter if manual_payment.booking_type == 'ASSET' else booking.passenger,
-                category=NotificationCategory.PAYMENT,
-                notification_type='MANUAL_PAYMENT_REJECTED',
-                title='Payment Rejected',
-                message=f'Your manual payment of {manual_payment.amount} {manual_payment.currency} has been rejected. Reason: {manual_payment.admin_notes}',
-            )
+            
+            notification_user = None
+            if manual_payment.booking_type == 'ASSET':
+                notification_user = booking.renter
+            elif manual_payment.booking_type == 'RIDE':
+                notification_user = booking.passenger
+            elif manual_payment.booking_type == 'SUBSCRIPTION':
+                notification_user = booking.user if hasattr(booking, 'user') else (booking.profile.user if hasattr(booking, 'profile') else None)
+
+            if notification_user:
+                NotificationService.create_notification(
+                    user=notification_user,
+                    category=NotificationCategory.PAYMENT,
+                    notification_type='MANUAL_PAYMENT_REJECTED',
+                    title='Payment Rejected',
+                    message=f'Your manual payment of {manual_payment.amount} {manual_payment.currency} has been rejected. Reason: {manual_payment.admin_notes}',
+                )
         except Exception:
             pass
         

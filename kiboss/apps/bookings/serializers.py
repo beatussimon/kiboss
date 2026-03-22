@@ -90,6 +90,7 @@ class BookingResponseSerializer(serializers.ModelSerializer):
     can_start = serializers.SerializerMethodField()
     can_complete = serializers.SerializerMethodField()
     booking_category = serializers.SerializerMethodField()
+    payment = serializers.SerializerMethodField()
     
     class Meta:
         model = Booking
@@ -102,7 +103,8 @@ class BookingResponseSerializer(serializers.ModelSerializer):
             'is_late', 'late_minutes', 'late_fee_charged',
             'cancellation_fee', 'cancelled_at',
             'completed_at', 'created_at', 'updated_at',
-            'can_cancel', 'can_start', 'can_complete', 'booking_category'
+            'can_cancel', 'can_start', 'can_complete', 'booking_category',
+            'payment'
         ]
         read_only_fields = fields
     
@@ -129,6 +131,12 @@ class BookingResponseSerializer(serializers.ModelSerializer):
         
     def get_booking_category(self, obj):
         return 'asset'
+
+    def get_payment(self, obj):
+        if hasattr(obj, 'payment') and obj.payment:
+            from kiboss.apps.payments.serializers import PaymentSerializer
+            return PaymentSerializer(obj.payment).data
+        return None
 
 
 class BookingListSerializer(serializers.ModelSerializer):

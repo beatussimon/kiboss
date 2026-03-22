@@ -452,63 +452,6 @@ class OfflinePaymentMethod(models.Model):
         return f"{self.network_name} - {self.payment_number}"
 
 
-class SubscriptionPayment(models.Model):
-    """
-    Manual payment proof submission for subscription upgrades.
-    """
-    class Status(models.TextChoices):
-        PENDING = 'PENDING', 'Pending Approval'
-        APPROVED = 'APPROVED', 'Approved'
-        REJECTED = 'REJECTED', 'Rejected'
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='subscription_payments'
-    )
-    
-    plan_type = models.CharField(max_length=20, choices=[('PLUS', 'Plus'), ('BUSINESS', 'Business')])
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    currency = models.CharField(max_length=3, default='TZS')
-    
-    payment_method = models.ForeignKey(
-        OfflinePaymentMethod,
-        on_delete=models.SET_NULL,
-        null=True,
-        related_name='payments'
-    )
-    
-    confirmation_message = models.TextField(blank=True, help_text="User's message or transaction ID")
-    receipt_image = models.ImageField(upload_to='payment_receipts/%Y/%m/', blank=True, null=True)
-    
-    status = models.CharField(
-        max_length=20,
-        choices=Status.choices,
-        default=Status.PENDING
-    )
-    
-    admin_notes = models.TextField(blank=True, help_text="Notes from admin upon approval/rejection")
-    reviewed_at = models.DateTimeField(blank=True, null=True)
-    reviewed_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='reviewed_payments'
-    )
-    
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = 'subscription_payments'
-        ordering = ['-created_at']
-
-    def __str__(self):
-        return f"{self.user.email} - {self.plan_type} - {self.status}"
-
-
 class UserPaymentMethod(models.Model):
     """
     User-configured payment methods (for receiving payments).
@@ -566,8 +509,8 @@ class ManualPayment(models.Model):
         APPROVED = 'APPROVED', 'Approved'
         REJECTED = 'REJECTED', 'Rejected'
     
-    # Reference to either Booking (asset) or SeatBooking (ride)
-    booking_type = models.CharField(max_length=10, choices=[('ASSET', 'Asset Booking'), ('RIDE', 'Ride Seat Booking')])
+    # Reference to either Booking (asset), SeatBooking (ride), or Subscription
+    booking_type = models.CharField(max_length=15, choices=[('ASSET', 'Asset Booking'), ('RIDE', 'Ride Seat Booking'), ('SUBSCRIPTION', 'Subscription')])
     booking_id = models.UUIDField()
     
     # Amount and currency
@@ -637,6 +580,12 @@ class ManualPayment(models.Model):
         elif self.booking_type == 'RIDE':
             from kiboss.apps.rides.models import SeatBooking
             return SeatBooking.objects.get(id=self.booking_id)
+        elif self.booking_type == 'SUBSCRIPTION':
+            from kiboss.apps.users.models import UserSubscription, BusinessSubscription
+            try:
+                return UserSubscription.objects.get(id=self.booking_id)
+            except UserSubscription.DoesNotExist:
+                return BusinessSubscription.objects.filter(id=self.booking_id).first()
         return None
 
 class ManualPaymentReceipt(models.Model):

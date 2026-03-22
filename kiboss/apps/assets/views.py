@@ -287,6 +287,53 @@ class AssetViewSet(viewsets.ModelViewSet):
         
         return queryset
     
+    @action(detail=True, methods=['get'])
+    def check_availability(self, request, pk=None):
+        """Check if asset is available for specific dates and quantity."""
+        asset = self.get_object()
+        start_time_str = request.query_params.get('start_time')
+        end_time_str = request.query_params.get('end_time')
+        quantity_str = request.query_params.get('quantity', '1')
+        
+        if not start_time_str or not end_time_str:
+            return Response(
+                {'error': 'start_time and end_time are required parameters'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        try:
+            from dateutil.parser import parse
+            start_time = parse(start_time_str)
+            end_time = parse(end_time_str)
+            quantity = int(quantity_str)
+        except (ValueError, TypeError) as e:
+            return Response(
+                {'error': f'Invalid date format or quantity: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        from kiboss.apps.bookings.services import BookingService
+        
+        try:
+            is_available, conflict_info = BookingService.check_availability(
+                asset_id=asset.id,
+                start_time=start_time,
+                end_time=end_time,
+                quantity=quantity
+            )
+            return Response({
+                'is_available': is_available,
+                'conflict_info': conflict_info,
+                'asset_id': str(asset.id),
+                'requested_quantity': quantity
+            })
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+
     @action(detail=True, methods=['post'])
     def verify(self, request, pk=None):
         """Verify an asset (admin/owner only)."""

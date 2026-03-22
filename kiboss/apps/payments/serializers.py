@@ -4,7 +4,7 @@ Serializers for Payments API
 from rest_framework import serializers
 from kiboss.apps.payments.models import (
     Payment, Dispute, PaymentStatus, PaymentMethod,
-    OfflinePaymentMethod, SubscriptionPayment, UserPaymentMethod, ManualPayment
+    OfflinePaymentMethod, UserPaymentMethod, ManualPayment
 )
 
 
@@ -29,6 +29,8 @@ class PaymentSerializer(serializers.ModelSerializer):
     payment_method_display = serializers.CharField(source='get_payment_method_display', read_only=True)
     offline_method_details = OfflinePaymentMethodSerializer(source='offline_method', read_only=True)
     manual_receipt_url = serializers.SerializerMethodField()
+    sender_phone = serializers.SerializerMethodField()
+    transaction_reference = serializers.SerializerMethodField()
     
     class Meta:
         model = Payment
@@ -43,6 +45,8 @@ class PaymentSerializer(serializers.ModelSerializer):
             'failure_code', 'failure_message',
             'manual_confirmation',
             'manual_receipt_url',
+            'sender_phone',
+            'transaction_reference',
             'offline_method',
             'offline_method_details',
             'created_at', 'updated_at'
@@ -52,6 +56,35 @@ class PaymentSerializer(serializers.ModelSerializer):
     def get_manual_receipt_url(self, obj):
         if obj.manual_receipt:
             return obj.manual_receipt.url
+        return None
+
+    def get_sender_phone(self, obj):
+        if hasattr(obj, 'dispute') and False: pass # placeholder
+        from kiboss.apps.payments.models import ManualPaymentReceipt
+        # ManualPaymentReceipt handles new submissions, check if exists
+        try:
+            # Shopflix style receipt
+            from django.contrib.contenttypes.models import ContentType
+            if hasattr(obj, 'booking') and obj.booking:
+                ctype = ContentType.objects.get_for_model(obj.booking)
+                receipt = ManualPaymentReceipt.objects.filter(content_type=ctype, object_id=obj.booking.id).first()
+                if receipt:
+                    return receipt.sender_phone_number
+        except Exception:
+            pass
+        return None
+
+    def get_transaction_reference(self, obj):
+        from kiboss.apps.payments.models import ManualPaymentReceipt
+        try:
+            from django.contrib.contenttypes.models import ContentType
+            if hasattr(obj, 'booking') and obj.booking:
+                ctype = ContentType.objects.get_for_model(obj.booking)
+                receipt = ManualPaymentReceipt.objects.filter(content_type=ctype, object_id=obj.booking.id).first()
+                if receipt:
+                    return receipt.transaction_reference
+        except Exception:
+            pass
         return None
 
 
@@ -127,18 +160,7 @@ class DisputeCreateSerializer(serializers.Serializer):
     disputed_amount = serializers.DecimalField(max_digits=10, decimal_places=2)
 
 
-class SubscriptionPaymentSerializer(serializers.ModelSerializer):
-    """Serializer for submitting subscription payment proofs."""
-    payment_method_details = OfflinePaymentMethodSerializer(source='payment_method', read_only=True)
-    
-    class Meta:
-        model = SubscriptionPayment
-        fields = [
-            'id', 'user', 'plan_type', 'amount', 'currency', 'payment_method',
-            'payment_method_details', 'confirmation_message', 'receipt_image',
-            'status', 'admin_notes', 'created_at'
-        ]
-        read_only_fields = ['id', 'user', 'status', 'admin_notes', 'created_at']
+
 
 
 class UserPaymentMethodSerializer(serializers.ModelSerializer):
@@ -191,5 +213,12 @@ class ManualPaymentSerializer(serializers.ModelSerializer):
                     'passenger_email': booking.passenger.email if booking.passenger else None,
                     'seat_number': booking.seat_number,
                     'price': str(booking.price) if booking.price else None,
+                }
+            elif obj.booking_type == 'SUBSCRIPTION':
+                return {
+                    'type': 'SUBSCRIPTION',
+                    'id': str(booking.id),
+                    'plan_type': getattr(booking, 'plan_type', None),
+                    'user_email': booking.user.email if hasattr(booking, 'user') else (booking.profile.user.email if hasattr(booking, 'profile') else None),
                 }
         return None

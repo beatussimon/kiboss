@@ -3,7 +3,6 @@ from .models import (
     Payment, 
     Dispute, 
     OfflinePaymentMethod, 
-    SubscriptionPayment, 
     UserPaymentMethod, 
     ManualPayment, 
     ManualPaymentReceipt
@@ -27,10 +26,6 @@ class ManualPaymentReceiptAdmin(admin.ModelAdmin):
     list_display = ('transaction_reference', 'status', 'uploaded_by', 'sender_phone_number', 'created_at')
     actions = [approve_payments, reject_payments]
 
-@admin.register(SubscriptionPayment)
-class SubscriptionPaymentAdmin(admin.ModelAdmin):
-    list_display = ('user', 'plan_type', 'amount', 'status', 'created_at')
-    actions = [approve_payments, reject_payments]
 
 @admin.register(UserPaymentMethod)
 class UserPaymentMethodAdmin(admin.ModelAdmin):

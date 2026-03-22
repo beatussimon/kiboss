@@ -43,6 +43,7 @@ class TaskType(models.TextChoices):
     ASSET_AUDIT = 'ASSET_AUDIT', 'Asset Audit'
     DISPUTE_RESOLUTION = 'DISPUTE_RESOLUTION', 'Dispute Resolution'
     SUPPORT_TICKET = 'SUPPORT_TICKET', 'Support Ticket'
+    SUBSCRIPTION_VERIFICATION = 'SUBSCRIPTION_VERIFICATION', 'Subscription Verification'
     CUSTOM_TASK = 'CUSTOM_TASK', 'Custom Task'
 
 

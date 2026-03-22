@@ -290,6 +290,19 @@ class BookingService:
                     metadata=metadata
                 )
                 
+                # Auto-generate contract
+                try:
+                    from kiboss.apps.contracts.models import Contract
+                    Contract.objects.create(
+                        booking=booking,
+                        jurisdiction=asset.jurisdiction_info.country if hasattr(asset, 'jurisdiction_info') else 'US',
+                        terms={'description': f'Rental of {asset.name}'},
+                        cancellation_policy=asset.get_property('cancellation_policy', 'Standard cancellation policy applies.')
+                    )
+                    BookingTimeline.log_event(booking, 'CONTRACT_GENERATED', 'Standard contract generated', 'SYSTEM', None)
+                except Exception as e:
+                    logger.warning(f"Could not generate contract for booking {booking.id}: {e}")
+                
                 # Log timeline event
                 BookingTimeline.log_event(
                     booking,

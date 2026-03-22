@@ -40,6 +40,7 @@ class SeatBookingSerializer(serializers.ModelSerializer):
     dropoff_stop_details = RideStopSerializer(source='dropoff_stop', read_only=True)
     booking_category = serializers.SerializerMethodField()
     ride_details = serializers.SerializerMethodField(source='ride')
+    payment = serializers.SerializerMethodField()
     
     class Meta:
         model = SeatBooking
@@ -62,6 +63,12 @@ class SeatBookingSerializer(serializers.ModelSerializer):
     def get_ride_details(self, obj):
         from kiboss.apps.rides.serializers import RideListSerializer
         return RideListSerializer(obj.ride).data
+
+    def get_payment(self, obj):
+        if obj.payment:
+            from kiboss.apps.payments.serializers import PaymentSerializer
+            return PaymentSerializer(obj.payment).data
+        return None
 
 
 class SeatBookingCreateSerializer(serializers.Serializer):
@@ -305,6 +312,7 @@ class CargoBookingSerializer(serializers.ModelSerializer):
     sender = UserSerializer(read_only=True)
     pickup_stop_details = RideStopSerializer(source='pickup_stop', read_only=True)
     dropoff_stop_details = RideStopSerializer(source='dropoff_stop', read_only=True)
+    payment = serializers.SerializerMethodField()
     
     class Meta:
         model = CargoBooking
@@ -319,6 +327,11 @@ class CargoBookingSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
+    def get_payment(self, obj):
+        if obj.payment:
+            from kiboss.apps.payments.serializers import PaymentSerializer
+            return PaymentSerializer(obj.payment).data
+        return None
 
 class CargoBookingCreateSerializer(serializers.Serializer):
     """Serializer for creating cargo bookings with validation."""

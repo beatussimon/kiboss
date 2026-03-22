@@ -861,6 +861,29 @@ class SeatBookingViewSet(viewsets.ModelViewSet):
         booking.cancel(reason=reason)
         serializer = self.get_serializer(booking)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def confirm(self, request, pk=None):
+        """Confirm a seat booking (Driver only)."""
+        booking = self.get_object()
+        if booking.ride.driver != request.user:
+            return Response({'error': 'Only the driver can confirm this booking'}, status=status.HTTP_403_FORBIDDEN)
+            
+        from kiboss.apps.rides.models import SeatBookingStatus
+        if booking.status != SeatBookingStatus.RESERVED:
+            return Response({'error': f'Cannot confirm {booking.status.lower()} booking'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        booking.status = SeatBookingStatus.CONFIRMED
+        booking.save(update_fields=['status'])
+        
+        try:
+            from kiboss.apps.notifications.services import NotificationService
+            NotificationService.notify_seat_booking_updated(booking)
+        except Exception as e:
+            pass
+            
+        serializer = self.get_serializer(booking)
+        return Response(serializer.data)
     
     @action(detail=True, methods=['post'])
     def check_in(self, request, pk=None):
@@ -1004,5 +1027,30 @@ class CargoBookingViewSet(viewsets.ModelViewSet):
         booking = self.get_object()
         reason = request.data.get('reason', '')
         booking.cancel(reason=reason)
+        serializer = self.get_serializer(booking)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def confirm(self, request, pk=None):
+        """Confirm a cargo booking (Driver only)."""
+        booking = self.get_object()
+        if booking.ride.driver != request.user:
+            return Response({'error': 'Only the driver can confirm this booking'}, status=status.HTTP_403_FORBIDDEN)
+            
+        from kiboss.apps.rides.models import CargoBookingStatus
+        if booking.status != CargoBookingStatus.RESERVED:
+            return Response({'error': f'Cannot confirm {booking.status.lower()} booking'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        booking.status = CargoBookingStatus.CONFIRMED
+        booking.save(update_fields=['status'])
+        
+        try:
+            from kiboss.apps.notifications.services import NotificationService
+            # Ensure NotificationService handles this, or safely pass if not implemented
+            if hasattr(NotificationService, 'notify_cargo_booking_updated'):
+                NotificationService.notify_cargo_booking_updated(booking)
+        except Exception:
+            pass
+            
         serializer = self.get_serializer(booking)
         return Response(serializer.data)
