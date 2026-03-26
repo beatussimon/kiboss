@@ -403,8 +403,14 @@ class ManualPaymentViewSet(viewsets.ModelViewSet):
         )
     
     def create(self, request, *args, **kwargs):
+        # 9. MANUAL PAYMENT VERIFICATION SCREENSHOT ENFORCEMENT
+        if not request.FILES.get('receipt_image'):
+            return Response(
+                {'error': 'A screenshot of the payment receipt is strictly required. Your submission has been automatically rejected without it.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
         data = request.data.copy()
-        # If it's a subscription and no booking_id provided, create a pending subscription
         if data.get('booking_type') == 'SUBSCRIPTION' and not data.get('booking_id'):
             from kiboss.apps.users.models import UserSubscription
             plan_type = data.get('plan_type', 'PLUS')

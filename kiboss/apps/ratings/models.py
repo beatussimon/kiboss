@@ -123,10 +123,24 @@ class Rating(models.Model):
     
     class Meta:
         db_table = 'ratings'
-        unique_together = ['booking', 'reviewer']
+        unique_together = [
+            ['booking', 'reviewer'],   # One review per user per booking
+            ['ride', 'reviewer'],       # One review per user per ride
+        ]
     
     def __str__(self):
         return f"Rating {self.id}: {self.reviewer.email} -> {self.reviewee.email}"
+    
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        # 11. RIDE REVIEW INTEGRITY
+        if self.ride:
+            # Reviewer must be the passenger on this ride booking
+            if self.ride.passenger != self.reviewer:
+                raise ValidationError({'reviewer': "Only the actual passenger of this ride can leave a review."})
+            # Ride booking must be COMPLETED
+            if self.ride.status != 'COMPLETED':
+                raise ValidationError({'ride': "Reviews can only be left for rides that have been COMPLETED."})
     
     def reveal_mutually(self):
         """Reveal ratings to each other."""

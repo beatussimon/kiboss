@@ -113,6 +113,12 @@ class Ride(models.Model):
     # Waypoints (JSON)
     waypoints = models.JSONField(default=list, blank=True)
     
+    # Location Logging (Verifiable location at key events)
+    creation_location_lat = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
+    creation_location_lng = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
+    start_location_lat = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
+    start_location_lng = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
+    
     # Schedule
     departure_time = models.DateTimeField()
     estimated_arrival = models.DateTimeField(blank=True, null=True)
@@ -188,6 +194,10 @@ class Ride(models.Model):
         return f"Ride {self.id}: {self.origin} → {self.destination} ({self.departure_time})"
 
     def save(self, *args, **kwargs):
+        # 10. LICENSE PLATE NORMALIZATION
+        if self.vehicle_license_plate:
+            self.vehicle_license_plate = self.vehicle_license_plate.replace(' ', '').upper()
+            
         # Update full status dynamically based on multiple capacity pools
         seats_full = (self.reserved_seats + self.confirmed_seats) >= self.total_seats
         cargo_full = not self.cargo_enabled or ((self.reserved_cargo + self.confirmed_cargo) >= self.total_cargo)
@@ -208,6 +218,19 @@ class Ride(models.Model):
             update_fields = kwargs['update_fields']
             if update_fields is not None and 'status' not in update_fields:
                 kwargs['update_fields'] = list(update_fields) + ['status']
+                
+        # 6. RIDE COUNT (ANTI-ABUSE HARD RULE)
+        if self.status == RideStatus.COMPLETED:
+            if self.confirmed_seats == 0:
+                from django.core.exceptions import ValidationError
+                raise ValidationError({'status': "Cannot mark a ride as COMPLETED when there are 0 confirmed passengers."})
+            
+            # Increment historical ride count for driver if transitioning to COMPLETED
+            if self.pk:
+                original = Ride.objects.get(pk=self.pk)
+                if original.status != RideStatus.COMPLETED:
+                    self.driver.historical_rides_completed += 1
+                    self.driver.save(update_fields=['historical_rides_completed'])
                 
         super().save(*args, **kwargs)
     

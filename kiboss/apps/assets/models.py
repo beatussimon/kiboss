@@ -193,6 +193,24 @@ class Asset(models.Model):
             if my_type in [AssetType.VEHICLE, AssetType.TOOL, AssetType.HOTEL, AssetType.RESTAURANT]:
                 raise ValidationError({'parent': f"{self.get_asset_type_display()} cannot be a child service."})
 
+        # 10. LICENSE PLATE NORMALIZATION AND STRICT UNIQUENESS
+        if self.asset_type == AssetType.VEHICLE and 'license_plate' in self.properties:
+            plate = str(self.properties['license_plate']).replace(' ', '').upper()
+            self.properties['license_plate'] = plate
+            if Asset.objects.filter(properties__license_plate=plate).exclude(pk=self.pk).exists():
+                raise ValidationError({'properties': "A vehicle with this strictly unique license plate already exists."})
+
+        # 3. Vehicle Document Checks (Strict Reality)
+        if self.asset_type == AssetType.VEHICLE and self.verification_status == VerificationStatus.VERIFIED:
+            if self.pk:
+                existing_docs = self.documents.values_list('document_type', flat=True)
+                required_docs = ['REGISTRATION', 'INSURANCE', 'OWNERSHIP']
+                missing = [doc for doc in required_docs if doc not in existing_docs]
+                if missing:
+                    raise ValidationError({'verification_status': f"Vehicle cannot be APPROVED without these documents: {', '.join(missing)}."})
+            else:
+                raise ValidationError({'verification_status': "Cannot verify a new vehicle before documents are uploaded."})
+
     def save(self, *args, **kwargs):
         """
         Enforce business rules and anti-fraud logic.

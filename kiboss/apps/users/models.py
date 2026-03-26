@@ -169,6 +169,9 @@ class User(AbstractUser):
     # Trust and reputation
     trust_score = models.DecimalField(max_digits=5, decimal_places=2, default=DEFAULT_TRUST_SCORE)
     total_ratings_count = models.IntegerField(default=0)
+    # Subscription limits (Historical tracking to prevent bypass via deletion)
+    historical_vehicles_created = models.PositiveIntegerField(default=0)
+    historical_rides_completed = models.PositiveIntegerField(default=0)
     
     # Status
     is_active = models.BooleanField(default=True)
@@ -429,7 +432,36 @@ class TrustScore(models.Model):
             self.cleanliness_score * Decimal('0.2') +
             self.timeliness_score * Decimal('0.3')
         )
-        self.save(update_fields=['overall_score', 'last_calculated'])
+        self.recalculate_badges()
+        self.save(update_fields=['overall_score', 'badges', 'last_calculated'])
+    
+    def recalculate_badges(self):
+        """12. TRUST SCORE DYNAMIC BADGE ASSIGNMENT"""
+        earned = []
+        
+        # Completed bookings badges
+        if self.completed_bookings >= 1:
+            earned.append('FIRST_RIDE')
+        if self.completed_bookings >= 10:
+            earned.append('REGULAR')
+        if self.completed_bookings >= 50:
+            earned.append('VETERAN')
+        if self.completed_bookings >= 100:
+            earned.append('ELITE')
+        
+        # Trust score badges
+        if self.overall_score >= Decimal('80.00'):
+            earned.append('TRUSTED')
+        if self.overall_score >= Decimal('95.00'):
+            earned.append('TOP_RATED')
+        
+        # Discipline badges
+        if self.cancelled_bookings == 0 and self.completed_bookings >= 5:
+            earned.append('ZERO_CANCELLATIONS')
+        if self.no_shows == 0 and self.completed_bookings >= 5:
+            earned.append('ALWAYS_SHOWS_UP')
+        
+        self.badges = earned
     
     def update_from_rating(self, rating_type, score):
         """Update specific score component from a rating."""
@@ -598,6 +630,7 @@ class BusinessSubscription(models.Model):
         PENDING = 'PENDING', 'Pending Payment'
         ACTIVE = 'ACTIVE', 'Active'
         EXPIRED = 'EXPIRED', 'Expired'
+        PENDING_CANCELLATION = 'PENDING_CANCELLATION', 'Pending Cancellation'
         CANCELLED = 'CANCELLED', 'Cancelled'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -708,8 +741,10 @@ class UserSubscription(models.Model):
         BUSINESS = 'BUSINESS', 'Business'
 
     class Status(models.TextChoices):
+        PENDING = 'PENDING', 'Pending'
         ACTIVE = 'ACTIVE', 'Active'
         EXPIRED = 'EXPIRED', 'Expired'
+        PENDING_CANCELLATION = 'PENDING_CANCELLATION', 'Pending Cancellation'
         CANCELLED = 'CANCELLED', 'Cancelled'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

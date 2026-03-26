@@ -282,8 +282,12 @@ class PublicUserSerializer(serializers.ModelSerializer):
         """Add profile data to the response."""
         data = super().to_representation(instance)
         # Add profile data if available
+        request = self.context.get('request')
         if hasattr(instance, 'profile') and instance.profile:
-            data['avatar'] = instance.profile.avatar.url if instance.profile.avatar else None
+            if instance.profile.avatar and hasattr(instance.profile.avatar, 'url'):
+                data['avatar'] = request.build_absolute_uri(instance.profile.avatar.url) if request else instance.profile.avatar.url
+            else:
+                data['avatar'] = None
             data['bio'] = instance.profile.bio or ''
             data['location'] = f"{instance.profile.city or ''}, {instance.profile.country or ''}".strip() or 'Location not set'
         else:
@@ -311,11 +315,17 @@ class PublicUserSerializer(serializers.ModelSerializer):
             price_rule = asset.pricing_rules.filter(is_active=True).first()
             if price_rule:
                 price = price_rule.price
+                
+            # Get primary photo URL
+            primary_photo = asset.photos.filter(is_primary=True).first() or asset.photos.first()
+            photo_url = request.build_absolute_uri(primary_photo.image.url) if primary_photo and request else (primary_photo.image.url if primary_photo else None)
+            
             data['listings'].append({
                 'id': asset.id,
                 'title': asset.name,
                 'type': asset.get_asset_type_display(),
-                'price': price
+                'price': price,
+                'photo_url': photo_url
             })
             
         # Rides

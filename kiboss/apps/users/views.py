@@ -243,24 +243,36 @@ class CorporateRegistrationView(APIView):
                 {'error': 'No existing corporate profile found for this user.'},
                 status=status.HTTP_404_NOT_FOUND
             )
-            
+        
+        # 10. ADMIN APPROVAL FOR SUBSCRIPTION CANCELLATION
+        # Instead of hard-deleting, mark as pending cancellation and create a staff task
+        active_subs = BusinessSubscription.objects.filter(
+            profile=profile, status='ACTIVE'
+        )
+        
+        if not active_subs.exists():
+            return Response(
+                {'error': 'No active subscription to cancel.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
         with transaction.atomic():
-            # Delete any verification tasks for this profile created by this user
-            try:
-                from django.contrib.contenttypes.models import ContentType
-                from kiboss.apps.tasks.models import StaffTask
-                content_type = ContentType.objects.get_for_model(profile)
-                StaffTask.objects.filter(content_type=content_type, object_id=profile.id).delete()
-            except Exception as e:
-                print(f"Failed to delete associated verification tasks: {e}")
-                
-            # Delete profile (which cascades to subscriptions)
-            profile.delete()
+            active_subs.update(status='PENDING_CANCELLATION')
+            
+            # Create a staff task for admin review
+            StaffTask.objects.create(
+                title=f"Subscription Cancellation Request: {profile.company_name}",
+                description=f"User {user.email} has requested cancellation of their corporate subscription. Please review and approve or deny.",
+                task_type=TaskType.SUBSCRIPTION_VERIFICATION,
+                content_type=ContentType.objects.get_for_model(profile),
+                object_id=profile.id,
+                priority=TaskPriority.HIGH if hasattr(TaskPriority, 'HIGH') else 'HIGH'
+            )
             
         return Response({
-            'status': 'success',
-            'message': 'Corporate application cancelled successfully'
-        }, status=status.HTTP_204_NO_CONTENT)
+            'status': 'pending',
+            'message': 'Your cancellation request has been submitted for admin review. You will be notified once processed.'
+        }, status=status.HTTP_200_OK)
 
 
 class CurrentUserView(APIView):

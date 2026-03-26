@@ -62,21 +62,17 @@ class VehicleRegistrationViewSet(viewsets.ModelViewSet):
                 parent__isnull=True
             ).count()
             
-            if request.user.account_tier == 'FREE' and total_assets >= 3:
-                raise PermissionDenied("Your Free plan allows up to 3 active assets in total. Upgrade to Plus to add more.")
+            if request.user.account_tier == 'FREE':
+                if total_assets >= 3:
+                    raise PermissionDenied("Your Free plan allows up to 3 active assets in total. Upgrade to Plus to add more.")
+                if request.user.historical_vehicles_created >= 1:
+                    raise PermissionDenied("Your Free plan allows a maximum of 1 vehicle. Deleting a vehicle does not reset this rule. Upgrade to Plus.")
             elif request.user.account_tier == 'PLUS':
                 if total_assets >= 10:
                     raise PermissionDenied("Your Plus plan allows up to 10 active assets in total.")
-                
-                vehicle_count = Asset.objects.filter(
-                    owner=request.user, 
-                    asset_type=AssetType.VEHICLE,
-                    is_active=True,
-                    parent__isnull=True
-                ).count()
-                
-                if vehicle_count >= 2:
-                    raise PermissionDenied("Your Plus plan allows a maximum of 2 active vehicles.")        
+                if request.user.historical_vehicles_created >= 2:
+                    raise PermissionDenied("Your Plus plan allows a maximum of 2 vehicles. Deleting a vehicle does not reset this rule. Switch to Business.")
+                    
         with transaction.atomic():
             asset = serializer.save(
                 owner=request.user, 
@@ -86,6 +82,10 @@ class VehicleRegistrationViewSet(viewsets.ModelViewSet):
                 is_listed=False,
                 is_active=True
             )
+            
+            # Update historical vehicle count (Strict constraint requirement)
+            request.user.historical_vehicles_created += 1
+            request.user.save(update_fields=['historical_vehicles_created'])
             
             # 2. Handle documents
             # Support multiple files with 'documents' key

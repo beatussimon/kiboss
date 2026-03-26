@@ -212,9 +212,27 @@ class RideSerializer(serializers.ModelSerializer):
             'driver_notes', 'cancellation_cutoff_minutes',
             'no_show_cutoff_minutes', 'stops', 'stops_data',
             'photos',
+            'creation_location_lat', 'creation_location_lng',
+            'start_location_lat', 'start_location_lng',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+        
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        # 4. VEHICLE PHOTOS (NO DUPLICATION)
+        if not ret.get('photos') and instance.vehicle_asset:
+            request = self.context.get('request')
+            ret['photos'] = [
+                {
+                    'id': str(photo.id),
+                    'image': request.build_absolute_uri(photo.image.url) if (photo.image and request) else (photo.image.url if photo.image else None),
+                    'caption': photo.caption,
+                    'is_primary': photo.is_primary
+                } 
+                for photo in instance.vehicle_asset.photos.all()
+            ]
+        return ret
     
     def get_available_seats(self, obj):
         return obj.get_available_seats()
@@ -224,13 +242,85 @@ class RideSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         vehicle_asset_id = attrs.pop('vehicle_asset_id', None)
+        vehicle_asset = None
+        
         if vehicle_asset_id:
             from kiboss.apps.assets.models import Asset
             try:
-                attrs['vehicle_asset'] = Asset.objects.get(id=vehicle_asset_id)
+                vehicle_asset = Asset.objects.get(id=vehicle_asset_id)
+                attrs['vehicle_asset'] = vehicle_asset
             except Asset.DoesNotExist as exc:
                 raise serializers.ValidationError({'vehicle_asset_id': 'Vehicle asset not found'}) from exc
-        # vehicle_asset is now optional - drivers can specify vehicle details directly
+                
+        # 3. VEHICLE STATE MACHINE (STRICT GATEKEEPING)
+        if vehicle_asset:
+            from kiboss.apps.assets.models import VerificationStatus
+            if vehicle_asset.verification_status != VerificationStatus.VERIFIED:
+                raise serializers.ValidationError({'vehicle_asset_id': 'Vehicle must be APPROVED to create a ride.'})
+                
+        # 1. VEHICLE SEATS (STRICT REALITY ENFORCEMENT)
+        # Seats MUST be derived from vehicle: max_passenger_seats = vehicle.total_seats - 1 (driver)
+        if vehicle_asset:
+            seat_capacity = vehicle_asset.capacities.filter(capacity_type='SEAT').first()
+            if seat_capacity and seat_capacity.quantity > 0:
+                # Remove manual input and override with vehicle capacity
+                attrs['total_seats'] = max(0, seat_capacity.quantity - 1)
+            else:
+                # Fallback if no specific capacity object exists, but reject if missing strict config
+                raise serializers.ValidationError({'vehicle_asset_id': 'Vehicle must have a defined SEAT capacity.'})
+                
+        # 8 & 9. RIDE UNIQUENESS AND TIME CONFLICTS
+        # Prevent overlaps and duplicates strictly at DB level before save
+        driver = self.context['request'].user
+        departure_time = attrs.get('departure_time')
+        estimated_arrival = attrs.get('estimated_arrival')
+        origin = attrs.get('origin')
+        destination = attrs.get('destination')
+        
+        if departure_time and estimated_arrival:
+            from kiboss.apps.rides.models import Ride, RideStatus
+            from django.db.models import Q
+            
+            # Check Ride Uniqueness (Anti-duplication)
+            duplicate_exists = Ride.objects.filter(
+                driver=driver,
+                vehicle_asset=vehicle_asset,
+                departure_time=departure_time,
+                origin=origin,
+                destination=destination
+            ).exclude(status__in=[RideStatus.CANCELLED, RideStatus.COMPLETED]).exists()
+            
+            if duplicate_exists:
+                raise serializers.ValidationError("A duplicate ride with this exact route and time already exists.")
+            
+            # Check Time Conflicts (Cannot run multiple rides at the same time)
+            time_conflict = Ride.objects.filter(
+                driver=driver,
+                status__in=[RideStatus.SCHEDULED, RideStatus.OPEN, RideStatus.FULL, RideStatus.IN_TRANSIT]
+            ).filter(
+                Q(departure_time__lt=estimated_arrival) & Q(estimated_arrival__gt=departure_time)
+            )
+            
+            # If using specific vehicle, check vehicle conflicts too
+            if vehicle_asset:
+                time_conflict = time_conflict.filter(Q(driver=driver) | Q(vehicle_asset=vehicle_asset))
+                
+            if time_conflict.exists():
+                raise serializers.ValidationError("Time conflict detected. You or this vehicle already have an active ride during this period.")
+                
+            # 15. VEHICLE RENTAL VS RIDE (LOCKING SYSTEM)
+            if vehicle_asset:
+                from kiboss.apps.bookings.models import Booking, BookingStatus
+                rental_conflict = Booking.objects.filter(
+                    asset=vehicle_asset,
+                    status__in=[BookingStatus.CONFIRMED, BookingStatus.ACTIVE]
+                ).filter(
+                    Q(start_date__lt=estimated_arrival) & Q(end_date__gt=departure_time)
+                ).exists()
+                
+                if rental_conflict:
+                    raise serializers.ValidationError("Vehicle is currently rented out during this period and cannot be used for a ride.")
+        
         return attrs
     
     def create(self, validated_data):
