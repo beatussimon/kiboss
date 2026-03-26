@@ -279,11 +279,12 @@ class PublicUserSerializer(serializers.ModelSerializer):
     """Serializer for public user profile (used for viewing other users)."""
     verification_badge = serializers.SerializerMethodField()
     checkmark_data = serializers.SerializerMethodField()
+    avatar = serializers.ImageField(source='profile.avatar', read_only=True)
     
     class Meta:
         model = User
         fields = [
-            'id', 'first_name', 'last_name',
+            'id', 'first_name', 'last_name', 'avatar',
             'is_email_verified', 'is_phone_verified', 'is_identity_verified',
             'trust_score', 'total_ratings_count',
             'verification_tier', 'verification_badge', 'checkmark_data',
