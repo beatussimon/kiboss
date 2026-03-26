@@ -72,6 +72,7 @@ class UserWithProfileSerializer(serializers.ModelSerializer):
     profile = UserProfileSerializer(read_only=True)
     corporate_profile = CorporateProfileSerializer(read_only=True)
     verification_badge = serializers.SerializerMethodField()
+    checkmark_data = serializers.SerializerMethodField()
     roles = serializers.SerializerMethodField()
     permissions = serializers.SerializerMethodField()
     
@@ -87,7 +88,7 @@ class UserWithProfileSerializer(serializers.ModelSerializer):
             'id', 'email', 'first_name', 'last_name',
             'is_email_verified', 'is_phone_verified', 'is_identity_verified',
             'trust_score', 'total_ratings_count', 'is_blocked',
-            'account_tier', 'verification_tier', 'verification_badge',
+            'account_tier', 'verification_tier', 'verification_badge', 'checkmark_data',
             'is_staff', 'is_superuser',
             'profile', 'corporate_profile', 'roles', 'permissions',
             'followers_count', 'following_count', 'total_listings', 'total_rides', 'total_reviews'
@@ -102,6 +103,12 @@ class UserWithProfileSerializer(serializers.ModelSerializer):
     def get_verification_badge(self, obj):
         """Get verification badge info."""
         return obj.verification_badge
+
+    def get_checkmark_data(self, obj):
+        """Get checkmark Base64 data from Redis."""
+        from kiboss.apps.common.checkmarks import get_checkmark_data
+        badge = obj.verification_badge
+        return get_checkmark_data(badge.get('tier'))
 
     def get_roles(self, obj):
         """Get user roles."""
@@ -141,6 +148,7 @@ class UserSerializer(serializers.ModelSerializer):
     profile = UserProfileSerializer(read_only=True)
     corporate_profile = CorporateProfileSerializer(read_only=True)
     verification_badge = serializers.SerializerMethodField()
+    checkmark_data = serializers.SerializerMethodField()
     roles = serializers.SerializerMethodField()
     permissions = serializers.SerializerMethodField()
     
@@ -156,7 +164,7 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'email', 'first_name', 'last_name',
             'is_email_verified', 'is_phone_verified', 'is_identity_verified',
             'trust_score', 'total_ratings_count', 'is_blocked',
-            'account_tier', 'verification_tier', 'verification_badge',
+            'account_tier', 'verification_tier', 'verification_badge', 'checkmark_data',
             'is_staff', 'is_superuser',
             'profile', 'corporate_profile', 'roles', 'permissions',
             'followers_count', 'following_count', 'total_listings', 'total_rides', 'total_reviews'
@@ -171,6 +179,12 @@ class UserSerializer(serializers.ModelSerializer):
     def get_verification_badge(self, obj):
         """Get verification badge info."""
         return obj.verification_badge
+
+    def get_checkmark_data(self, obj):
+        """Get checkmark Base64 data from Redis."""
+        from kiboss.apps.common.checkmarks import get_checkmark_data
+        badge = obj.verification_badge
+        return get_checkmark_data(badge.get('tier'))
 
     def get_roles(self, obj):
         """Get user roles."""
@@ -264,6 +278,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 class PublicUserSerializer(serializers.ModelSerializer):
     """Serializer for public user profile (used for viewing other users)."""
     verification_badge = serializers.SerializerMethodField()
+    checkmark_data = serializers.SerializerMethodField()
     
     class Meta:
         model = User
@@ -271,12 +286,18 @@ class PublicUserSerializer(serializers.ModelSerializer):
             'id', 'first_name', 'last_name',
             'is_email_verified', 'is_phone_verified', 'is_identity_verified',
             'trust_score', 'total_ratings_count',
-            'verification_tier', 'verification_badge',
+            'verification_tier', 'verification_badge', 'checkmark_data',
         ]
     
     def get_verification_badge(self, obj):
         """Get verification badge info."""
         return obj.verification_badge
+    
+    def get_checkmark_data(self, obj):
+        """Get checkmark Base64 data from Redis."""
+        from kiboss.apps.common.checkmarks import get_checkmark_data
+        badge = obj.verification_badge
+        return get_checkmark_data(badge.get('tier'))
     
     def to_representation(self, instance):
         """Add profile data to the response."""

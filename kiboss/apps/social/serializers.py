@@ -6,9 +6,20 @@ from kiboss.apps.assets.models import Asset
 User = get_user_model()
 
 class UserMinimalSerializer(serializers.ModelSerializer):
+    verification_badge = serializers.SerializerMethodField()
+    checkmark_data = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ['id', 'email', 'first_name', 'last_name']
+        fields = ['id', 'email', 'first_name', 'last_name', 'verification_badge', 'checkmark_data']
+
+    def get_verification_badge(self, obj):
+        return obj.verification_badge
+
+    def get_checkmark_data(self, obj):
+        from kiboss.apps.common.checkmarks import get_checkmark_data
+        badge = obj.verification_badge
+        return get_checkmark_data(badge.get('tier'))
 
 class AssetMinimalSerializer(serializers.ModelSerializer):
     class Meta:
