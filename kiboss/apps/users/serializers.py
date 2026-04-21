@@ -143,6 +143,27 @@ class UserWithProfileSerializer(serializers.ModelSerializer):
         return Rating.objects.filter(reviewee=obj, status='APPROVED').count()
 
 
+class UserMinimalSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for User — used in booking list views.
+
+    Only includes fields the frontend needs for booking cards.
+    Avoids the expensive nested queries (profile, roles, permissions)
+    that the full UserSerializer performs.
+    """
+    verification_badge = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            'id', 'email', 'first_name', 'last_name',
+            'verification_badge', 'created_at',
+        ]
+        read_only_fields = fields
+
+    def get_verification_badge(self, obj):
+        return obj.verification_badge
+
+
 class UserSerializer(serializers.ModelSerializer):
     """Serializer for User model."""
     profile = UserProfileSerializer(read_only=True)

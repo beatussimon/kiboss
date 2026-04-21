@@ -71,6 +71,62 @@ class SeatBookingSerializer(serializers.ModelSerializer):
         return None
 
 
+class RideMinimalSerializer(serializers.ModelSerializer):
+    """Minimal ride serializer for booking list views.
+
+    Only includes fields the frontend actually renders in booking cards.
+    Avoids nesting full UserSerializer (driver) and AssetSerializer (vehicle).
+    """
+    photos = RidePhotoSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Ride
+        fields = [
+            'id', 'origin', 'destination', 'departure_time',
+            'status', 'seat_price', 'currency', 'photos',
+        ]
+        read_only_fields = fields
+
+
+class SeatBookingListSerializer(serializers.ModelSerializer):
+    """Lightweight SeatBooking serializer for list views.
+
+    Uses UserMinimalSerializer and RideMinimalSerializer to avoid
+    the N+1 query explosion caused by the full nested serializers.
+    """
+    passenger = serializers.SerializerMethodField()
+    ride_details = serializers.SerializerMethodField()
+    booking_category = serializers.SerializerMethodField()
+    payment = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SeatBooking
+        fields = [
+            'id', 'ride', 'ride_details', 'passenger', 'seat_number', 'status',
+            'price', 'currency', 'payment',
+            'passenger_notes', 'luggage_count',
+            'cancelled_at', 'cancellation_reason',
+            'created_at', 'updated_at', 'booking_category',
+        ]
+        read_only_fields = fields
+
+    def get_passenger(self, obj):
+        from kiboss.apps.users.serializers import UserMinimalSerializer
+        return UserMinimalSerializer(obj.passenger).data
+
+    def get_ride_details(self, obj):
+        return RideMinimalSerializer(obj.ride).data
+
+    def get_booking_category(self, obj):
+        return 'ride'
+
+    def get_payment(self, obj):
+        if obj.payment:
+            from kiboss.apps.payments.serializers import PaymentSerializer
+            return PaymentSerializer(obj.payment).data
+        return None
+
+
 class SeatBookingCreateSerializer(serializers.Serializer):
     """Serializer for creating seat bookings with validation."""
     ride_id = serializers.UUIDField()

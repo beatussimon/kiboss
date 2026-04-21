@@ -139,6 +139,35 @@ class BookingResponseSerializer(serializers.ModelSerializer):
         return None
 
 
+class BookingListResponseSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for booking list views.
+
+    Uses AssetSummarySerializer and UserMinimalSerializer to reduce
+    per-booking query count. Drops expensive computed fields that
+    aren't needed in list cards (can_cancel, can_start, can_complete, owner).
+    """
+    from kiboss.apps.users.serializers import UserMinimalSerializer as _UserMinimal
+
+    asset = AssetSummarySerializer(read_only=True)
+    renter = _UserMinimal(read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    booking_category = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Booking
+        fields = [
+            'id', 'asset', 'renter', 'status', 'status_display',
+            'start_time', 'end_time', 'quantity',
+            'total_price', 'currency',
+            'renter_notes', 'owner_notes',
+            'created_at', 'updated_at', 'booking_category',
+        ]
+        read_only_fields = fields
+
+    def get_booking_category(self, obj):
+        return 'asset'
+
+
 class BookingListSerializer(serializers.ModelSerializer):
     """Serializer for listing bookings."""
     
