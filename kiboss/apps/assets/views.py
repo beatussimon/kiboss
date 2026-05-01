@@ -15,12 +15,14 @@ from kiboss.apps.assets.serializers import (
 )
 from kiboss.apps.tasks.models import StaffTask, TaskType, TaskStatus, TaskPriority
 from kiboss.apps.users.models import CorporateProfile
-
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
+from rest_framework import viewsets, status, filters, permissions
 
 class AssetViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing assets.
-    
+
     Provides CRUD operations for the universal asset system.
     """
     queryset = Asset.objects.select_related('owner', 'verified_by').order_by('-created_at')
@@ -28,7 +30,11 @@ class AssetViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'description', 'city', 'country', 'address']
     ordering_fields = ['created_at', 'average_rating', 'total_bookings']
     permission_classes = [permissions.IsAuthenticated]
-    
+
+    @method_decorator(cache_page(60 * 5))
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
     def get_serializer_class(self):
         if self.action == 'list':
             return AssetListSerializer
@@ -211,13 +217,12 @@ class AssetViewSet(viewsets.ModelViewSet):
         )
         
         queryset = Asset.objects.select_related(
-            'owner', 'verified_by'
+            'owner', 'owner__profile', 'owner__corporate_profile', 'verified_by'
         ).prefetch_related(
             'photos',
             'pricing_rules',
             'availability_rules',
             'capacities',
-            'owner__corporate_profile',
         ).annotate(
             visibility_boost=Case(
                 When(has_verified_corp, then=Value(2.0)),
