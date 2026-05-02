@@ -3,9 +3,12 @@ URL Configuration for Users API
 """
 
 from django.urls import path
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from .serializers import CustomTokenObtainPairSerializer
-from .views import CurrentUserView, PublicUserView, RegisterView, CorporateRegistrationView, BusinessConfigView, VerifyEmailView, CorporateWorkerViewSet, TierListView, UpgradeView, WorkerPasswordResetView, CurrentUserAnalyticsView
+from .views import (
+    CurrentUserView, PublicUserView, RegisterView, CorporateRegistrationView, BusinessConfigView,
+    VerifyEmailView, CorporateWorkerViewSet, TierListView, UpgradeView, WorkerPasswordResetView, CurrentUserAnalyticsView,
+    CookieTokenObtainPairView, CookieTokenRefreshView, LogoutView
+)
 
 urlpatterns = [
     path('register/', RegisterView.as_view(), name='register'),
@@ -16,9 +19,10 @@ urlpatterns = [
     path('business/config/', BusinessConfigView.as_view(), name='business-config'),
     path('tiers/', TierListView.as_view(), name='tier-list'),
     path('upgrade/', UpgradeView.as_view(), name='upgrade'),
-    # JWT endpoints with custom serializer for email authentication
-    path('token/', TokenObtainPairView.as_view(serializer_class=CustomTokenObtainPairSerializer), name='token_obtain_pair'),
-    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    # JWT endpoints using HttpOnly cookies
+    path('token/', CookieTokenObtainPairView.as_view(serializer_class=CustomTokenObtainPairSerializer), name='token_obtain_pair'),
+    path('token/refresh/', CookieTokenRefreshView.as_view(), name='token_refresh'),
+    path('logout/', LogoutView.as_view(), name='logout'),
     
     # Current user endpoints (must come before <uuid> routes)
     path('me/', CurrentUserView.as_view(), name='current-user'),

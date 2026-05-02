@@ -145,6 +145,9 @@ class VehicleRegistrationViewSet(viewsets.ModelViewSet):
         return Response({'status': 'Verification submitted'})
 
 
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
+
 class RideViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing rides.
@@ -154,6 +157,10 @@ class RideViewSet(viewsets.ModelViewSet):
     queryset = Ride.objects.select_related('driver', 'vehicle_asset').order_by('-departure_time')
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     
+    @method_decorator(cache_page(60 * 5))
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
     def get_serializer_class(self):
         if self.action == 'list':
             return RideListSerializer

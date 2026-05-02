@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+db.sqlite3
+/media/
+/staticfiles/
+node_modules/
+.pytest_cache/
+*.log
+kibossvenv/

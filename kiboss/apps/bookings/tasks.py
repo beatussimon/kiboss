@@ -381,8 +381,17 @@ def process_late_returns(self):
         for booking in late_bookings:
             try:
                 with transaction.atomic():
-                    # Calculate late duration
                     return_time = timezone.now()
+                    
+                    # Apply grace period check
+                    grace_end = booking.end_time + timedelta(
+                        minutes=booking.grace_period_minutes
+                    )
+                    
+                    if return_time <= grace_end:
+                        continue
+                    
+                    # Calculate late duration
                     late_minutes = int((return_time - booking.end_time).total_seconds() / 60)
                     
                     # Mark as late

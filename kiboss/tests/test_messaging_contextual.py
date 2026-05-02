@@ -66,11 +66,19 @@ class TestContextualMessagingAPI:
         assert response.status_code == status.HTTP_201_CREATED
         assert response.data['context_type'] == 'BOOKING'
         assert response.data['context_id'] == str(test_booking.id)
-
     def test_ride_context_creates_thread(
-        self, authenticated_client_second, test_ride, test_user
+        self, authenticated_client_second, test_ride, test_user, second_user
     ):
         """Passenger contacting driver on ride succeeds."""
+        from kiboss.apps.rides.models import SeatBooking
+        from decimal import Decimal
+        SeatBooking.objects.create(
+            ride=test_ride,
+            passenger=second_user,
+            seat_number=1,
+            status='CONFIRMED',
+            price=Decimal('25.00')
+        )
         url = reverse('thread-create-contextual')
         payload = {
             'target_user_id': str(test_ride.driver.id),

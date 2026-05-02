@@ -202,14 +202,12 @@ class Asset(models.Model):
 
         # 3. Vehicle Document Checks (Strict Reality)
         if self.asset_type == AssetType.VEHICLE and self.verification_status == VerificationStatus.VERIFIED:
-            if self.pk:
+            if not self._state.adding:
                 existing_docs = self.documents.values_list('document_type', flat=True)
                 required_docs = ['REGISTRATION', 'INSURANCE', 'OWNERSHIP']
                 missing = [doc for doc in required_docs if doc not in existing_docs]
                 if missing:
                     raise ValidationError({'verification_status': f"Vehicle cannot be APPROVED without these documents: {', '.join(missing)}."})
-            else:
-                raise ValidationError({'verification_status': "Cannot verify a new vehicle before documents are uploaded."})
 
     def save(self, *args, **kwargs):
         """

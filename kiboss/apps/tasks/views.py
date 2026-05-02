@@ -102,10 +102,9 @@ class StaffTaskViewSet(viewsets.ModelViewSet):
         is_any_verifier = any(p in user_permissions for p in [Permission.USER_VERIFY, Permission.ASSET_VERIFY])
         
         assigned_to_me = models.Q(assigned_to=user)
-        unassigned_pool = models.Q(assigned_to__isnull=True) & (
-            models.Q(assigned_role__in=roles) |
-            (models.Q(assigned_role='VERIFIER') if is_any_verifier else models.Q(pk__in=[])) |
-            models.Q(task_type__in=allowed_types)
+        unassigned_pool = models.Q(assigned_to__isnull=True) & models.Q(task_type__in=allowed_types) & (
+            models.Q(assigned_role__in=list(roles) + ['']) |
+            (models.Q(assigned_role='VERIFIER') if is_any_verifier else models.Q(pk__in=[]))
         )
         
         return queryset.filter(assigned_to_me | unassigned_pool).distinct().order_by('-priority_level', '-created_at')
@@ -240,6 +239,14 @@ class StaffTaskViewSet(viewsets.ModelViewSet):
                 )
 
         with transaction.atomic():
+            task = StaffTask.objects.select_for_update().get(pk=task.pk)
+            
+            if task.status in [TaskStatus.COMPLETED, TaskStatus.REJECTED, TaskStatus.CHANGES_REQUESTED]:
+                return Response(
+                    {'error': 'Task has already been processed.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
             # Update the task status
             task.reviewer_notes = notes
             task.assigned_to = request.user

@@ -403,8 +403,10 @@ class ManualPaymentViewSet(viewsets.ModelViewSet):
         )
     
     def create(self, request, *args, **kwargs):
+        is_cash = request.data.get('is_cash') == 'true'
+        
         # 9. MANUAL PAYMENT VERIFICATION SCREENSHOT ENFORCEMENT
-        if not request.FILES.get('receipt_image'):
+        if not is_cash and not request.FILES.get('receipt_image'):
             return Response(
                 {'error': 'A screenshot of the payment receipt is strictly required. Your submission has been automatically rejected without it.'},
                 status=status.HTTP_400_BAD_REQUEST

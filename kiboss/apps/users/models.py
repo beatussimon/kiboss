@@ -316,6 +316,7 @@ class UserProfile(models.Model):
     # Personal information
     phone = models.CharField(max_length=20, blank=True, null=True)
     avatar = models.ImageField(upload_to='avatars/', blank=True, null=True, validators=[validate_file_size, validate_image_extension])
+    banner_image = models.ImageField(upload_to='banners/', blank=True, null=True, validators=[validate_file_size, validate_image_extension])
     bio = models.TextField(max_length=500, blank=True)
     date_of_birth = models.DateField(blank=True, null=True)
     

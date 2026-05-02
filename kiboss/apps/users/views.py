@@ -304,12 +304,14 @@ class CurrentUserView(APIView):
         for key, value in request.data.items():
             if key in ['first_name', 'last_name']:
                 user_data[key] = value
-            elif key in ['phone', 'bio', 'avatar', 'address', 'city', 'state', 'country', 'postal_code']:
+            elif key in ['phone', 'bio', 'avatar', 'banner_image', 'address', 'city', 'state', 'country', 'postal_code']:
                 profile_data[key] = value
         
-        # Explicitly check request.FILES for avatar if not found in request.data
+        # Explicitly check request.FILES for avatar/banner_image if not found in request.data
         if 'avatar' in request.FILES:
             profile_data['avatar'] = request.FILES['avatar']
+        if 'banner_image' in request.FILES:
+            profile_data['banner_image'] = request.FILES['banner_image']
         
         print(f"DEBUG: Updating user {user.email}. user_data keys: {list(user_data.keys())}, profile_data keys: {list(profile_data.keys())}")
         
@@ -814,8 +816,8 @@ class CurrentUserAnalyticsView(APIView):
             'visibility_multiplier': visibility_multiplier,
             'active_listings': total_assets,
             'rides_this_month': rides_this_month,
-            'max_rides_per_month': 100 if user.account_tier == 'PLUS' else 3,
-            'max_assets': 10 if user.account_tier == 'PLUS' else 3,
+            'max_rides_per_month': -1 if user.account_tier == 'BUSINESS' else (100 if user.account_tier == 'PLUS' else 3),
+            'max_assets': -1 if user.account_tier == 'BUSINESS' else (10 if user.account_tier == 'PLUS' else 3),
             'total_earnings': float(total_earnings),
             'total_completed_bookings': total_completed_bookings,
             'pending_requests': pending_requests,
@@ -828,3 +830,81 @@ class CurrentUserAnalyticsView(APIView):
                 'audience_insights': audience_insights
             }
         })
+
+
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+from django.conf import settings
+
+def set_auth_cookies(response, access_token, refresh_token=None):
+    max_age = settings.SIMPLE_JWT['ACCESS_TOKEN_LIFETIME'].total_seconds()
+    response.set_cookie(
+        key='access_token',
+        value=access_token,
+        max_age=max_age,
+        expires=max_age,
+        httponly=True,
+        samesite='Lax',
+        secure=not settings.DEBUG
+    )
+    if refresh_token:
+        refresh_max_age = settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME'].total_seconds()
+        response.set_cookie(
+            key='refresh_token',
+            value=refresh_token,
+            max_age=refresh_max_age,
+            expires=refresh_max_age,
+            httponly=True,
+            samesite='Lax',
+            secure=not settings.DEBUG
+        )
+
+class CookieTokenObtainPairView(TokenObtainPairView):
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == 200:
+            access_token = response.data.get('access')
+            refresh_token = response.data.get('refresh')
+            set_auth_cookies(response, access_token, refresh_token)
+            
+            # Remove tokens from response body for security
+            if 'access' in response.data:
+                del response.data['access']
+            if 'refresh' in response.data:
+                del response.data['refresh']
+            response.data['detail'] = 'Successfully logged in.'
+        return response
+
+class CookieTokenRefreshView(TokenRefreshView):
+    def post(self, request, *args, **kwargs):
+        refresh_token = request.COOKIES.get('refresh_token')
+        data = dict(request.data)
+        if refresh_token:
+            data['refresh'] = refresh_token
+            
+        serializer = self.get_serializer(data=data)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except TokenError as e:
+            raise InvalidToken(e.args[0])
+
+        response = Response(serializer.validated_data, status=status.HTTP_200_OK)
+        if response.status_code == 200:
+            access_token = response.data.get('access')
+            refresh_token = response.data.get('refresh', refresh_token)
+            set_auth_cookies(response, access_token, refresh_token)
+            
+            if 'access' in response.data:
+                del response.data['access']
+            if 'refresh' in response.data:
+                del response.data['refresh']
+            response.data['detail'] = 'Token refreshed successfully.'
+        return response
+
+class LogoutView(APIView):
+    permission_classes = [AllowAny]
+    def post(self, request):
+        response = Response({'detail': 'Successfully logged out.'}, status=status.HTTP_200_OK)
+        response.delete_cookie('access_token')
+        response.delete_cookie('refresh_token')
+        return response

@@ -360,31 +360,32 @@ class BookingService:
         Raises:
             ValueError: If transition is invalid
         """
-        booking = Booking.objects.select_for_update().get(id=booking_id)
-        
-        if booking.status != BookingStatus.PENDING:
-            raise ValueError(f"Cannot confirm booking in {booking.status} status")
-        
-        # Transition to confirmed
-        booking.transition_to(
-            BookingStatus.CONFIRMED,
-            actor_type='USER',
-            actor_id=actor.id,
-            reason='Booking confirmed',
-            justification=justification
-        )
-        
-        # Log timeline
-        BookingTimeline.log_event(
-            booking,
-            'CONFIRMED',
-            'Booking confirmed',
-            'USER',
-            actor.id
-        )
-        
-        logger.info(f"Booking {booking_id} confirmed by {actor.email}")
-        return booking
+        with transaction.atomic():
+            booking = Booking.objects.select_for_update().get(id=booking_id)
+            
+            if booking.status != BookingStatus.PENDING:
+                raise ValueError(f"Cannot confirm booking in {booking.status} status")
+            
+            # Transition to confirmed
+            booking.transition_to(
+                BookingStatus.CONFIRMED,
+                actor_type='USER',
+                actor_id=actor.id,
+                reason='Booking confirmed',
+                justification=justification
+            )
+            
+            # Log timeline
+            BookingTimeline.log_event(
+                booking,
+                'CONFIRMED',
+                'Booking confirmed',
+                'USER',
+                actor.id
+            )
+            
+            logger.info(f"Booking {booking_id} confirmed by {actor.email}")
+            return booking
     
     @classmethod
     def cancel_booking(cls, booking_id, actor, reason='', justification=''):
@@ -403,56 +404,57 @@ class BookingService:
         Raises:
             ValueError: If transition is invalid
         """
-        booking = Booking.objects.select_for_update().get(id=booking_id)
-        
-        # Idempotency check: if already cancelled, just return it
-        if booking.status == BookingStatus.CANCELLED:
-            logger.info(f"Booking {booking_id} is already cancelled. Returning idempotently.")
-            return booking
+        with transaction.atomic():
+            booking = Booking.objects.select_for_update().get(id=booking_id)
+            
+            # Idempotency check: if already cancelled, just return it
+            if booking.status == BookingStatus.CANCELLED:
+                logger.info(f"Booking {booking_id} is already cancelled. Returning idempotently.")
+                return booking
 
-        # Check if cancellable
-        if booking.status not in [BookingStatus.PENDING, BookingStatus.CONFIRMED]:
-            raise ValueError(f"Cannot cancel booking in {booking.status} status")
-        
-        # Calculate cancellation fee
-        if booking.status == BookingStatus.CONFIRMED:
-            fee = booking.get_cancellation_fee(timezone.now())
-        else:
-            fee = Decimal('0.00')
-        
-        # Determine actor type safely (owners who are staff shouldn't need admin justification)
-        actor_role = 'USER'
-        if actor.is_staff and actor != booking.renter and actor != booking.asset.owner:
-            actor_role = 'ADMIN'
+            # Check if cancellable
+            if booking.status not in [BookingStatus.PENDING, BookingStatus.CONFIRMED]:
+                raise ValueError(f"Cannot cancel booking in {booking.status} status")
+            
+            # Calculate cancellation fee
+            if booking.status == BookingStatus.CONFIRMED:
+                fee = booking.get_cancellation_fee(timezone.now())
+            else:
+                fee = Decimal('0.00')
+            
+            # Determine actor type safely (owners who are staff shouldn't need admin justification)
+            actor_role = 'USER'
+            if actor.is_staff and actor != booking.renter and actor != booking.asset.owner:
+                actor_role = 'ADMIN'
 
-        # Perform transition
-        try:
-            booking.transition_to(
-                BookingStatus.CANCELLED,
-                actor_type=actor_role,
-                actor_id=actor.id,
-                reason=reason,
-                justification=justification
+            # Perform transition
+            try:
+                booking.transition_to(
+                    BookingStatus.CANCELLED,
+                    actor_type=actor_role,
+                    actor_id=actor.id,
+                    reason=reason,
+                    justification=justification
+                )
+            except ValueError as e:
+                raise ValueError(str(e))
+            
+            # Update cancellation fee
+            booking.cancellation_fee = fee
+            booking.save()
+            
+            # Log timeline
+            BookingTimeline.log_event(
+                booking,
+                'CANCELLED',
+                f'Booking cancelled. Cancellation fee: {fee}',
+                actor_role,
+                actor.id,
+                {'reason': reason, 'fee': str(fee)}
             )
-        except ValueError as e:
-            raise ValueError(str(e))
-        
-        # Update cancellation fee
-        booking.cancellation_fee = fee
-        booking.save()
-        
-        # Log timeline
-        BookingTimeline.log_event(
-            booking,
-            'CANCELLED',
-            f'Booking cancelled. Cancellation fee: {fee}',
-            actor_role,
-            actor.id,
-            {'reason': reason, 'fee': str(fee)}
-        )
-        
-        logger.info(f"Booking {booking_id} cancelled by {actor.email}. Fee: {fee}")
-        return booking
+            
+            logger.info(f"Booking {booking_id} cancelled by {actor.email}. Fee: {fee}")
+            return booking
     
     @classmethod
     def start_booking(cls, booking_id, actor):
@@ -466,27 +468,28 @@ class BookingService:
         Returns:
             Booking: Updated booking
         """
-        booking = Booking.objects.select_for_update().get(id=booking_id)
-        
-        if booking.status != BookingStatus.CONFIRMED:
-            raise ValueError(f"Cannot start booking in {booking.status} status")
-        
-        booking.transition_to(
-            BookingStatus.ACTIVE,
-            actor_type='USER',
-            actor_id=actor.id,
-            reason='Rental period started'
-        )
-        
-        BookingTimeline.log_event(
-            booking,
-            'STARTED',
-            'Booking started',
-            'USER',
-            actor.id
-        )
-        
-        return booking
+        with transaction.atomic():
+            booking = Booking.objects.select_for_update().get(id=booking_id)
+            
+            if booking.status != BookingStatus.CONFIRMED:
+                raise ValueError(f"Cannot start booking in {booking.status} status")
+            
+            booking.transition_to(
+                BookingStatus.ACTIVE,
+                actor_type='USER',
+                actor_id=actor.id,
+                reason='Rental period started'
+            )
+            
+            BookingTimeline.log_event(
+                booking,
+                'STARTED',
+                'Booking started',
+                'USER',
+                actor.id
+            )
+            
+            return booking
     
     @classmethod
     def complete_booking(cls, booking_id, actor, notes='', late_return=False):
@@ -502,51 +505,51 @@ class BookingService:
         Returns:
             Booking: Updated booking
         """
-        booking = Booking.objects.select_for_update().get(id=booking_id)
-        
-        if booking.status != BookingStatus.ACTIVE:
-            raise ValueError(f"Cannot complete booking in {booking.status} status")
-        
-        return_time = timezone.now()
-        
-        # Calculate late fees if applicable
-        if late_return or return_time > booking.end_time:
-            late_fee = booking.calculate_late_fee(return_time)
-            booking.is_late = True
-            booking.late_minutes = int(
-                (return_time - booking.end_time).total_seconds() / 60
-            )
-            booking.late_fee_charged = late_fee
-        else:
-            late_fee = Decimal('0.00')
-        
-        booking.transition_to(
-            BookingStatus.COMPLETED,
-            actor_type='USER',
-            actor_id=actor.id,
-            reason='Rental completed'
-        )
-        
-        booking.completed_at = return_time
-        booking.actual_return_time = return_time
-        booking.save()
-        
-        BookingTimeline.log_event(
-            booking,
-            'COMPLETED',
-            f'Booking completed. Late fee: {late_fee}',
-            'USER',
-            actor.id,
-            {'late_return': late_return, 'late_fee': str(late_fee)}
-        )
-        
-        # Update asset statistics
         with transaction.atomic():
+            booking = Booking.objects.select_for_update().get(id=booking_id)
+            
+            if booking.status != BookingStatus.ACTIVE:
+                raise ValueError(f"Cannot complete booking in {booking.status} status")
+            
+            return_time = timezone.now()
+            
+            # Calculate late fees if applicable
+            if late_return or return_time > booking.end_time:
+                late_fee = booking.calculate_late_fee(return_time)
+                booking.is_late = True
+                booking.late_minutes = int(
+                    (return_time - booking.end_time).total_seconds() / 60
+                )
+                booking.late_fee_charged = late_fee
+            else:
+                late_fee = Decimal('0.00')
+            
+            booking.transition_to(
+                BookingStatus.COMPLETED,
+                actor_type='USER',
+                actor_id=actor.id,
+                reason='Rental completed'
+            )
+            
+            booking.completed_at = return_time
+            booking.actual_return_time = return_time
+            booking.save()
+            
+            BookingTimeline.log_event(
+                booking,
+                'COMPLETED',
+                f'Booking completed. Late fee: {late_fee}',
+                'USER',
+                actor.id,
+                {'late_return': late_return, 'late_fee': str(late_fee)}
+            )
+            
+            # Update asset statistics
             asset = Asset.objects.select_for_update().get(id=booking.asset.id)
             asset.total_bookings += 1
             asset.save(update_fields=['total_bookings', 'updated_at'])
-        
-        return booking
+            
+            return booking
 
 
 # Import models at module level to avoid circular imports

@@ -267,7 +267,7 @@ class BookingViewSet(viewsets.ViewSet):
             )
         
         # Check permission
-        if booking.renter != request.user and booking.asset.owner != request.user:
+        if booking.renter != request.user and booking.asset.owner != request.user and not request.user.is_staff:
             return Response(
                 {'error': 'Booking not found'},
                 status=status.HTTP_404_NOT_FOUND
@@ -311,6 +311,45 @@ class BookingViewSet(viewsets.ViewSet):
                 {'error': 'An error occurred while creating booking'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    @action(detail=False, methods=['get'])
+    def calculate_price(self, request):
+        """Calculate the price for a potential booking."""
+        asset_id = request.query_params.get('asset_id')
+        start_time_str = request.query_params.get('start_time')
+        end_time_str = request.query_params.get('end_time')
+        quantity = int(request.query_params.get('quantity', 1))
+
+        if not all([asset_id, start_time_str, end_time_str]):
+            return Response(
+                {'error': 'asset_id, start_time, and end_time are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        from dateutil.parser import parse
+        try:
+            start_time = parse(start_time_str)
+            end_time = parse(end_time_str)
+        except Exception:
+            return Response(
+                {'error': 'Invalid date format'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            price_breakdown = BookingService.calculate_price(
+                asset_id=asset_id,
+                quantity=quantity,
+                start_time=start_time,
+                end_time=end_time
+            )
+            return Response(price_breakdown)
+        except Exception as e:
+            logger.exception("Error calculating price")
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
     
     def update(self, request, pk=None):
         """Update booking (only notes and non-critical fields)."""
@@ -341,7 +380,7 @@ class BookingViewSet(viewsets.ViewSet):
         except Booking.DoesNotExist:
             return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        if booking.renter != request.user and booking.asset.owner != request.user:
+        if booking.renter != request.user and booking.asset.owner != request.user and not request.user.is_staff:
             return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
 
         try:
@@ -365,7 +404,7 @@ class BookingViewSet(viewsets.ViewSet):
             )
         
         # Check permission
-        if booking.renter != request.user and booking.asset.owner != request.user:
+        if booking.renter != request.user and booking.asset.owner != request.user and not request.user.is_staff:
             return Response(
                 {'error': 'Permission denied'},
                 status=status.HTTP_403_FORBIDDEN
@@ -481,11 +520,11 @@ class BookingViewSet(viewsets.ViewSet):
             }
         )
 
-        payment.authorize(payment.amount, {'last_four': '4242', 'brand': 'VISA'})
-        payment.hold_in_escrow()
+        if payment.status == 'PENDING':
+            payment.authorize(payment.amount, {'last_four': '4242', 'brand': 'VISA'})
+            payment.hold_in_escrow()
 
-        if booking.status == 'PENDING':
-            booking = BookingService.confirm_booking(booking_id=booking.id, actor=request.user)
+        # Remove the automatic confirm_booking call so owners can approve manually.
 
         booking.payment = payment
         booking.save(update_fields=['payment', 'updated_at'])
@@ -499,7 +538,7 @@ class BookingViewSet(viewsets.ViewSet):
         except Booking.DoesNotExist:
             return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        if booking.renter != request.user and booking.asset.owner != request.user:
+        if booking.renter != request.user and booking.asset.owner != request.user and not request.user.is_staff:
             return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
 
         if booking.status == 'PENDING' and booking.payment_id:
@@ -517,7 +556,7 @@ class BookingViewSet(viewsets.ViewSet):
         except Booking.DoesNotExist:
             return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        if booking.renter != request.user and booking.asset.owner != request.user:
+        if booking.renter != request.user and booking.asset.owner != request.user and not request.user.is_staff:
             return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
 
         if not booking.payment_id:
@@ -561,7 +600,7 @@ class BookingViewSet(viewsets.ViewSet):
             )
         
         # Check permission
-        if booking.renter != request.user and booking.asset.owner != request.user:
+        if booking.renter != request.user and booking.asset.owner != request.user and not request.user.is_staff:
             return Response(
                 {'error': 'Permission denied'},
                 status=status.HTTP_403_FORBIDDEN

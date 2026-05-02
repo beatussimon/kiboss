@@ -173,6 +173,13 @@ def test_asset_vehicle(db, test_user):
             'mileage': 50000
         }
     )
+    from kiboss.apps.assets.models import AssetCapacity
+    AssetCapacity.objects.create(
+        asset=asset,
+        capacity_type='SEAT',
+        quantity=4,
+        description='Passenger seats'
+    )
     return asset
 
 

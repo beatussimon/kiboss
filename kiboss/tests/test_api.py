@@ -269,6 +269,9 @@ class TestRideAPI:
         url = reverse('ride-list')
         response = authenticated_client.post(url, data, format='json')
         
+        if response.status_code != status.HTTP_201_CREATED:
+            print("ERROR RESPONSE STOPS:", response.data)
+            
         assert response.status_code == status.HTTP_201_CREATED
 
 

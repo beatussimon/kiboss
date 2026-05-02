@@ -43,11 +43,12 @@ class CorporateWorkerSerializer(serializers.ModelSerializer):
 class UserProfileSerializer(serializers.ModelSerializer):
     """Serializer for UserProfile model."""
     avatar_url = serializers.SerializerMethodField()
+    banner_image_url = serializers.SerializerMethodField()
     
     class Meta:
         model = UserProfile
         fields = [
-            'id', 'phone', 'avatar', 'avatar_url', 'bio', 'date_of_birth',
+            'id', 'phone', 'avatar', 'avatar_url', 'banner_image', 'banner_image_url', 'bio', 'date_of_birth',
             'address', 'city', 'state', 'country', 'postal_code',
             'latitude', 'longitude',
             'timezone', 'language', 'currency',
@@ -64,6 +65,14 @@ class UserProfileSerializer(serializers.ModelSerializer):
             if request is not None:
                 return request.build_absolute_uri(obj.avatar.url)
             return obj.avatar.url
+        return None
+
+    def get_banner_image_url(self, obj):
+        request = self.context.get('request')
+        if getattr(obj, 'banner_image', None) and hasattr(obj.banner_image, 'url'):
+            if request is not None:
+                return request.build_absolute_uri(obj.banner_image.url)
+            return obj.banner_image.url
         return None
 
 
@@ -301,11 +310,12 @@ class PublicUserSerializer(serializers.ModelSerializer):
     verification_badge = serializers.SerializerMethodField()
     checkmark_data = serializers.SerializerMethodField()
     avatar = serializers.ImageField(source='profile.avatar', read_only=True)
+    banner_image = serializers.ImageField(source='profile.banner_image', read_only=True)
     
     class Meta:
         model = User
         fields = [
-            'id', 'first_name', 'last_name', 'avatar',
+            'id', 'first_name', 'last_name', 'avatar', 'banner_image',
             'is_email_verified', 'is_phone_verified', 'is_identity_verified',
             'trust_score', 'total_ratings_count',
             'verification_tier', 'verification_badge', 'checkmark_data',
@@ -331,10 +341,17 @@ class PublicUserSerializer(serializers.ModelSerializer):
                 data['avatar'] = request.build_absolute_uri(instance.profile.avatar.url) if request else instance.profile.avatar.url
             else:
                 data['avatar'] = None
+                
+            if getattr(instance.profile, 'banner_image', None) and hasattr(instance.profile.banner_image, 'url'):
+                data['banner_image'] = request.build_absolute_uri(instance.profile.banner_image.url) if request else instance.profile.banner_image.url
+            else:
+                data['banner_image'] = None
+                
             data['bio'] = instance.profile.bio or ''
             data['location'] = f"{instance.profile.city or ''}, {instance.profile.country or ''}".strip() or 'Location not set'
         else:
             data['avatar'] = None
+            data['banner_image'] = None
             data['bio'] = ''
             data['location'] = 'Location not set'
         
