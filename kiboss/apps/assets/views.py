@@ -18,6 +18,7 @@ from kiboss.apps.users.models import CorporateProfile
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 from rest_framework import viewsets, status, filters, permissions
+import hashlib
 
 class AssetViewSet(viewsets.ModelViewSet):
     """
@@ -31,9 +32,67 @@ class AssetViewSet(viewsets.ModelViewSet):
     ordering_fields = ['created_at', 'average_rating', 'total_bookings']
     permission_classes = [permissions.IsAuthenticated]
 
+    def get_throttles(self):
+        if self.action == 'upload_photos':
+            self.throttle_scope = 'upload'
+        return super().get_throttles()
+
     @method_decorator(cache_page(60 * 5))
     def list(self, request, *args, **kwargs):
-        return super().list(request, *args, **kwargs)
+        response = super().list(request, *args, **kwargs)
+        
+        # Record search impressions
+        if response.status_code == 200 and 'results' in response.data:
+            from kiboss.apps.assets.models import SearchImpression
+            search_query = request.query_params.get('search', '')
+            impressions = []
+            for i, asset_data in enumerate(response.data['results']):
+                impressions.append(SearchImpression(
+                    asset_id=asset_data['id'],
+                    search_query=search_query,
+                    position_in_results=i + 1
+                ))
+            if impressions:
+                SearchImpression.objects.bulk_create(impressions)
+        
+        return response
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        
+        # Track page view
+        from kiboss.apps.assets.models import PageView
+        ip = request.META.get('REMOTE_ADDR', '')
+        ip_hash = hashlib.sha256(ip.encode()).hexdigest()
+        
+        PageView.objects.create(
+            asset=instance,
+            viewer_ip_hash=ip_hash,
+            session_id=request.session.session_key or '',
+            referrer=request.META.get('HTTP_REFERER', '')[:500]
+        )
+        
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def record_click(self, request, pk=None):
+        """Record a click from search results."""
+        from kiboss.apps.assets.models import SearchImpression
+        asset = self.get_object()
+        search_query = request.data.get('search_query', '')
+        
+        # Find the most recent impression for this asset and query
+        impression = SearchImpression.objects.filter(
+            asset=asset,
+            search_query=search_query
+        ).order_by('-created_at').first()
+        
+        if impression:
+            impression.was_clicked = True
+            impression.save(update_fields=['was_clicked'])
+            
+        return Response({'status': 'click recorded'})
 
     def get_serializer_class(self):
         if self.action == 'list':
@@ -389,6 +448,22 @@ class AssetViewSet(viewsets.ModelViewSet):
         asset.save()
         serializer = self.get_serializer(asset)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['patch'])
+    def housekeeping(self, request, pk=None):
+        """Update housekeeping status for an asset."""
+        asset = self.get_object()
+        new_status = request.data.get('status')
+        if not new_status:
+            return Response({'error': 'Status is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if hasattr(asset, 'set_property'):
+            asset.set_property('housekeeping_status', new_status)
+        else:
+            asset.metadata['housekeeping_status'] = new_status
+            asset.save(update_fields=['metadata'])
+            
+        return Response({'status': new_status, 'asset_id': asset.id})
     
     @action(detail=True, methods=['get'])
     def photos(self, request, pk=None):

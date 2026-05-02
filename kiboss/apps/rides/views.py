@@ -30,6 +30,11 @@ class VehicleRegistrationViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser] # Explicit parsers
 
+    def get_throttles(self):
+        if self.action == 'create':
+            self.throttle_scope = 'upload'
+        return super().get_throttles()
+
     def get_queryset(self):
         return self.queryset.filter(owner=self.request.user)
 
@@ -148,19 +153,30 @@ class VehicleRegistrationViewSet(viewsets.ModelViewSet):
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 
+from rest_framework.pagination import PageNumberPagination
+
+class RidePagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 50
+
 class RideViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing rides.
-    
+
     Provides CRUD operations and custom actions for ride-sharing.
     """
     queryset = Ride.objects.select_related('driver', 'vehicle_asset').order_by('-departure_time')
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
-    
-    @method_decorator(cache_page(60 * 5))
+    pagination_class = RidePagination
+
+    def get_throttles(self):
+        if self.action == 'upload_photos':
+            self.throttle_scope = 'upload'
+        return super().get_throttles()
+
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
-
     def get_serializer_class(self):
         if self.action == 'list':
             return RideListSerializer
@@ -306,11 +322,19 @@ class RideViewSet(viewsets.ModelViewSet):
         
         # Filter by status
         status_param = self.request.query_params.get('status')
+        show_all = self.request.query_params.get('show_all')
+        
         if status_param:
             queryset = queryset.filter(status=status_param)
         elif not is_own_rides:
+            # [T3-04] Apply default filter if no specific filters provided
+            if not any([status_param, driver_id, show_all]):
+                queryset = queryset.filter(
+                    status__in=[RideStatus.OPEN, RideStatus.SCHEDULED],
+                    departure_time__gte=timezone.now()
+                )
             # Bypass filters if requesting user is Owner/Provider or Customer with a booking
-            if self.request.user.is_authenticated:
+            elif self.request.user.is_authenticated:
                 queryset = queryset.filter(
                     Q(driver=self.request.user) | 
                     Q(seat_bookings__passenger=self.request.user) |
@@ -474,6 +498,23 @@ class RideViewSet(viewsets.ModelViewSet):
         ride.save()
         serializer = self.get_serializer(ride)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def complete(self, request, pk=None):
+        """Mark a ride as completed."""
+        ride = self.get_object()
+
+        # Permission check: Only driver can complete
+        if ride.driver != request.user and not request.user.is_staff:
+            return Response({'error': 'Only the driver can complete the ride'}, status=status.HTTP_403_FORBIDDEN)
+
+        from kiboss.apps.rides.models import RideStatus
+        if ride.confirmed_seats == 0:
+            return Response({'status': "Cannot mark a ride as COMPLETED when there are 0 confirmed passengers."}, status=status.HTTP_400_BAD_REQUEST)
+
+        ride.status = RideStatus.COMPLETED
+        ride.save()
+        return Response(self.get_serializer(ride).data)
     
     @action(detail=True, methods=['post'])
     def upload_photos(self, request, pk=None):

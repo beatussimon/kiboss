@@ -154,7 +154,7 @@ class BookingService:
                 "tax_rate": float(tax_rate),
                 "taxes": taxes,
                 "total": total,
-                "currency": asset.jurisdiction_info.country if hasattr(asset, 'jurisdiction_info') else 'TZS'
+                "currency": asset.get_property('currency', 'TZS')
             }
         
         # Calculate base price
@@ -187,7 +187,7 @@ class BookingService:
             "tax_rate": float(tax_rate),
             "taxes": taxes,
             "total": total,
-            "currency": asset.jurisdiction_info.country if hasattr(asset, 'jurisdiction_info') else 'TZS'
+            "currency": asset.get_property('currency', 'TZS')
         }
     
     @classmethod
@@ -290,12 +290,19 @@ class BookingService:
                     metadata=metadata
                 )
                 
+                # [T2-09] Handle instant book vs request to book
+                if not asset.instant_book:
+                    booking.status = BookingStatus.PENDING # awaiting owner approval
+                    booking.save(update_fields=['status'])
+                    # We keep it PENDING, but in the outer loop we will skip payment timeout if not instant
+                
                 # Auto-generate contract
                 try:
                     from kiboss.apps.contracts.models import Contract
                     Contract.objects.create(
                         booking=booking,
-                        jurisdiction=asset.jurisdiction_info.country if hasattr(asset, 'jurisdiction_info') else 'US',
+                        jurisdiction=asset.jurisdiction or 'TZ',
+                        governing_law='Laws of the United Republic of Tanzania',
                         terms={'description': f'Rental of {asset.name}'},
                         cancellation_policy=asset.get_property('cancellation_policy', 'Standard cancellation policy applies.')
                     )
@@ -326,15 +333,16 @@ class BookingService:
             with lock_manager.lock(lock_key, ttl=30, max_retries=3):
                 booking = _do_booking()
                 
-                # Schedule payment timeout task
-                try:
-                    from kiboss.apps.bookings.tasks import expire_pending_bookings
-                    expire_pending_bookings.apply_async(
-                        args=[booking.id],
-                        countdown=cls.PAYMENT_TIMEOUT_MINUTES * 60
-                    )
-                except Exception as e:
-                    logger.warning(f"Could not schedule expiry task: {e}")
+                # Schedule payment timeout task only for instant bookings
+                if asset.instant_book:
+                    try:
+                        from kiboss.apps.bookings.tasks import expire_pending_bookings
+                        expire_pending_bookings.apply_async(
+                            args=[booking.id],
+                            countdown=cls.PAYMENT_TIMEOUT_MINUTES * 60
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not schedule expiry task: {e}")
                 
                 logger.info(f"Created booking {booking.id} for asset {asset_id}")
                 return booking

@@ -1,0 +1,8 @@
+{% extends "email/base.html" %}
+{% block content %}
+<h2>Verification Approved</h2>
+<p>Hello {{ user.get_full_name }},</p>
+<p>Congratulations! Your account verification has been approved.</p>
+<p>You can now list assets and make bookings without restrictions.</p>
+<p><a href="{{ settings.FRONTEND_URL }}/profile">View Profile</a></p>
+{% endblock %}

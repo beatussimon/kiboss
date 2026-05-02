@@ -1,0 +1,8 @@
+{% extends "email/base.html" %}
+{% block content %}
+<h2>Booking Confirmed!</h2>
+<p>Hello {{ user.get_full_name }},</p>
+<p>Your booking for <strong>{{ booking.asset.name }}</strong> has been confirmed.</p>
+<p><strong>Date:</strong> {{ booking.start_time|date:"DATETIME_FORMAT" }} to {{ booking.end_time|date:"DATETIME_FORMAT" }}</p>
+<p><a href="{{ settings.FRONTEND_URL }}{{ action_url }}">View Booking Details</a></p>
+{% endblock %}

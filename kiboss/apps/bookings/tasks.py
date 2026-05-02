@@ -473,17 +473,58 @@ def cleanup_old_notifications(self):
 
 def create_notification(user, category, title, message, booking=None, ride=None):
     """
-    Helper function to create a notification.
+    Helper function to create a notification via NotificationService.
     """
-    notification = Notification.objects.create(
+    from kiboss.apps.notifications.services import NotificationService
+    NotificationService.create_notification(
         user=user,
         category=category,
         notification_type='system',
         title=title,
         message=message,
-        status='PENDING',
-        channels=['in_app'],
         booking=booking,
         ride=ride
     )
-    return notification
+
+
+@shared_task
+def mark_rooms_for_housekeeping():
+    """
+    Mark rooms as dirty and create housekeeping tasks after checkout.
+    """
+    from kiboss.apps.assets.models import Asset
+    from kiboss.apps.tasks.models import StaffTask
+    from django.contrib.contenttypes.models import ContentType
+    
+    recent_checkouts = Booking.objects.filter(
+        status=BookingStatus.COMPLETED,
+        completed_at__gte=timezone.now() - timedelta(hours=1),
+        asset__asset_type__in=['HOTEL_ROOM', 'ENTIRE_HOME', 'PRIVATE_ROOM', 'SHARED_ROOM']
+    )
+    
+    count = 0
+    for booking in recent_checkouts:
+        asset = booking.asset
+        # Set housekeeping status to DIRTY in metadata or via method
+        if hasattr(asset, 'set_property'):
+            asset.set_property('housekeeping_status', 'DIRTY')
+        else:
+            asset.metadata['housekeeping_status'] = 'DIRTY'
+            asset.save(update_fields=['metadata'])
+        
+        StaffTask.objects.get_or_create(
+            content_type=ContentType.objects.get_for_model(asset),
+            object_id=asset.id,
+            status__in=['PENDING', 'ASSIGNED'],
+            defaults={
+                'title': f'Clean {asset.name}',
+                'task_type': 'HOUSEKEEPING',
+                'assigned_role': 'HOUSEKEEPER',
+                'priority': 'HIGH',
+                'description': f'Cleaning required after checkout from booking {booking.id}'
+            }
+        )
+        count += 1
+    
+    logger.info(f"Marked {count} assets for housekeeping")
+    return {'housekeeping_marked': count}

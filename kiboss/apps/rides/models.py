@@ -14,7 +14,7 @@ Treats rides as seat-based asset units with:
 
 import uuid
 from decimal import Decimal
-from django.db import models
+from django.db import models, transaction
 from django.conf import settings
 from django.utils import timezone
 
@@ -190,6 +190,10 @@ class Ride(models.Model):
             models.Index(fields=['destination']),
         ]
     
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__original_status = getattr(self, 'status', None)
+
     def __str__(self):
         return f"Ride {self.id}: {self.origin} → {self.destination} ({self.departure_time})"
 
@@ -220,19 +224,13 @@ class Ride(models.Model):
                 kwargs['update_fields'] = list(update_fields) + ['status']
                 
         # 6. RIDE COUNT (ANTI-ABUSE HARD RULE)
-        if self.status == RideStatus.COMPLETED:
-            if self.confirmed_seats == 0:
-                from django.core.exceptions import ValidationError
-                raise ValidationError({'status': "Cannot mark a ride as COMPLETED when there are 0 confirmed passengers."})
-            
+        if self.status == RideStatus.COMPLETED and self.__original_status != RideStatus.COMPLETED:
             # Increment historical ride count for driver if transitioning to COMPLETED
-            if self.pk:
-                original = Ride.objects.get(pk=self.pk)
-                if original.status != RideStatus.COMPLETED:
-                    self.driver.historical_rides_completed += 1
-                    self.driver.save(update_fields=['historical_rides_completed'])
+            self.driver.historical_rides_completed += 1
+            self.driver.save(update_fields=['historical_rides_completed'])
                 
         super().save(*args, **kwargs)
+        self.__original_status = self.status
     
     def get_available_seats(self):
         """Get number of available seats (considering both reserved and confirmed)."""
@@ -454,21 +452,19 @@ class SeatBooking(models.Model):
     
     def cancel(self, reason=''):
         """Cancel seat booking."""
-        if self.status in [SeatBookingStatus.CONFIRMED, SeatBookingStatus.RESERVED]:
-            previous_status = self.status
-            self.status = SeatBookingStatus.CANCELLED
-            self.cancelled_at = timezone.now()
-            self.cancellation_reason = reason
-            self.save()
-            
-            # Update ride seat counts
-            if previous_status == SeatBookingStatus.CONFIRMED:
-                self.ride.confirmed_seats = max(0, self.ride.confirmed_seats - 1)
-            elif previous_status == SeatBookingStatus.RESERVED:
-                self.ride.reserved_seats = max(0, self.ride.reserved_seats - 1)
-            
-            # We call save() to trigger the visibility logic update in Ride.save()
-            self.ride.save()
+        with transaction.atomic():
+            if self.status in [SeatBookingStatus.CONFIRMED, SeatBookingStatus.RESERVED]:
+                previous_status = self.status
+                self.status = SeatBookingStatus.CANCELLED
+                self.cancelled_at = timezone.now()
+                self.cancellation_reason = reason
+                self.save()
+                ride = Ride.objects.select_for_update().get(id=self.ride_id)
+                if previous_status == SeatBookingStatus.CONFIRMED:
+                    ride.confirmed_seats = max(0, ride.confirmed_seats - 1)
+                elif previous_status == SeatBookingStatus.RESERVED:
+                    ride.reserved_seats = max(0, ride.reserved_seats - 1)
+                ride.save(update_fields=['confirmed_seats', 'reserved_seats', 'status', 'updated_at'])
     
     def mark_no_show(self):
         """Mark passenger as no-show."""
@@ -614,9 +610,6 @@ class RideSchedule(models.Model):
         return rides_created
 
 
-# Import transaction for atomic operations
-from django.db import transaction
-
 class CargoBooking(models.Model):
     """
     Individual cargo booking on a ride.
@@ -700,13 +693,16 @@ class CargoBooking(models.Model):
         
     def cancel(self, reason=''):
         """Cancel cargo booking."""
-        if self.status == CargoBookingStatus.CONFIRMED:
-            self.status = CargoBookingStatus.CANCELLED
-            self.cancelled_at = timezone.now()
-            self.cancellation_reason = reason
-            self.save()
-            
-            # Restore ride cargo capacity
-            self.ride.confirmed_cargo = max(Decimal('0.00'), self.ride.confirmed_cargo - self.weight)
-            # Save ride, which triggers the visibility capacity check automatically
-            self.ride.save()
+        with transaction.atomic():
+            if self.status in [CargoBookingStatus.CONFIRMED, CargoBookingStatus.RESERVED]:
+                previous_status = self.status
+                self.status = CargoBookingStatus.CANCELLED
+                self.cancelled_at = timezone.now()
+                self.cancellation_reason = reason
+                self.save()
+                ride = Ride.objects.select_for_update().get(id=self.ride_id)
+                if previous_status == CargoBookingStatus.CONFIRMED:
+                    ride.confirmed_cargo = max(Decimal('0.00'), ride.confirmed_cargo - self.weight)
+                elif previous_status == CargoBookingStatus.RESERVED:
+                    ride.reserved_cargo = max(Decimal('0.00'), ride.reserved_cargo - self.weight)
+                ride.save(update_fields=['confirmed_cargo', 'reserved_cargo', 'status', 'updated_at'])

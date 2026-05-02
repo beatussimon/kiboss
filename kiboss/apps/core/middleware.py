@@ -1,3 +1,7 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
 from channels.db import database_sync_to_async
 from django.contrib.auth.models import AnonymousUser
 from rest_framework_simplejwt.tokens import AccessToken
@@ -14,7 +18,7 @@ def get_user(token_key):
         try:
             UntypedToken(token_key)
         except (InvalidToken, TokenError) as e:
-            print(f"DEBUG AUTH: UntypedToken validation failed: {str(e)}")
+            logger.debug(f"DEBUG AUTH: UntypedToken validation failed: {str(e)}")
             return AnonymousUser()
 
         # 2. Decode and get user ID
@@ -23,19 +27,19 @@ def get_user(token_key):
             user_id = token['user_id']
             user = User.objects.get(id=user_id)
             if not user.is_active:
-                print(f"DEBUG AUTH: User {user.email} is inactive")
+                logger.debug(f"DEBUG AUTH: User {user.email} is inactive")
                 return AnonymousUser()
-            print(f"DEBUG AUTH: Success for user {user.email} (ID: {user_id})")
+            logger.debug(f"DEBUG AUTH: Success for user {user.email} (ID: {user_id})")
             return user
         except (InvalidToken, TokenError) as e:
-            print(f"DEBUG AUTH: AccessToken validation failed: {str(e)}")
+            logger.debug(f"DEBUG AUTH: AccessToken validation failed: {str(e)}")
             return AnonymousUser()
         except User.DoesNotExist:
-            print(f"DEBUG AUTH: User ID {user_id} not found")
+            logger.debug(f"DEBUG AUTH: User ID {user_id} not found")
             return AnonymousUser()
             
     except Exception as e:
-        print(f"DEBUG AUTH: Unexpected error in get_user: {str(e)}")
+        logger.debug(f"DEBUG AUTH: Unexpected error in get_user: {str(e)}")
         import traceback
         traceback.print_exc()
         return AnonymousUser()
@@ -48,7 +52,7 @@ class JwtAuthMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        print(f"DEBUG ASGI: WebSocket request to {scope.get('path')}")
+        logger.debug(f"DEBUG ASGI: WebSocket request to {scope.get('path')}")
         try:
             # Extract token from query string
             query_string = scope.get("query_string", b"").decode("utf-8")
@@ -60,10 +64,10 @@ class JwtAuthMiddleware:
                 user = await get_user(token)
                 scope["user"] = user
             else:
-                print("DEBUG AUTH: No token provided in query string")
+                logger.debug("DEBUG AUTH: No token provided in query string")
                 scope["user"] = AnonymousUser()
         except Exception as e:
-            print(f"DEBUG AUTH: Exception in middleware __call__: {str(e)}")
+            logger.debug(f"DEBUG AUTH: Exception in middleware __call__: {str(e)}")
             import traceback
             traceback.print_exc()
             scope["user"] = AnonymousUser()

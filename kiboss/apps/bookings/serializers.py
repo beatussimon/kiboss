@@ -203,3 +203,21 @@ class BookingCompleteSerializer(serializers.Serializer):
     
     notes = serializers.CharField(max_length=500, required=False, allow_blank=True)
     late_return = serializers.BooleanField(default=False)
+
+
+class VenueQuoteSerializer(serializers.ModelSerializer):
+    """Serializer for VenueQuote."""
+    
+    class Meta:
+        model = Booking.venuequote_set.model if hasattr(Booking, 'venuequote_set') else None # This might be tricky because of circularity or load order
+        # Actually, let's just use the model name or import it locally
+        fields = '__all__'
+        read_only_fields = ['quoted_price', 'quote_valid_until', 'status', 'created_at', 'updated_at']
+
+# Re-import to ensure it works
+from kiboss.apps.bookings.models import VenueQuote
+class VenueQuoteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = VenueQuote
+        fields = '__all__'
+        read_only_fields = ['quoted_price', 'quote_valid_until', 'status', 'created_at', 'updated_at']

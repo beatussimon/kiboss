@@ -12,6 +12,7 @@ This module implements the state-machine-based booking engine with:
 import uuid
 from decimal import Decimal
 from django.db import models, transaction
+from django.db.models import F
 from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.utils import timezone
@@ -176,7 +177,9 @@ class Booking(models.Model):
     late_fee_max = models.DecimalField(
         max_digits=10,
         decimal_places=2,
-        default=Decimal('0.00'),
+        null=True,
+        blank=True,
+        default=None,
         help_text="Maximum late fee"
     )
     
@@ -256,10 +259,10 @@ class Booking(models.Model):
     def __str__(self):
         return f"Booking {self.id} - {self.renter.email} / {self.asset.name} ({self.status})"
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, skip_create_log=False, **kwargs):
         is_create = self._state.adding
         super().save(*args, **kwargs)
-        if is_create and not self.price_breakdown:
+        if is_create and not skip_create_log and not self.price_breakdown:
             BookingTimeline.log_event(
                 booking=self,
                 event_type='CREATED',
@@ -335,7 +338,7 @@ class Booking(models.Model):
             elif new_status == BookingStatus.COMPLETED:
                 self.completed_at = timezone.now()
             
-            self.save()
+            self.save(skip_create_log=True)
 
             # Log timeline for transition.
             BookingTimeline.log_event(
@@ -350,16 +353,17 @@ class Booking(models.Model):
             # Keep trust score counters aligned with lifecycle.
             if new_status in [BookingStatus.CANCELLED, BookingStatus.COMPLETED]:
                 from kiboss.apps.users.models import TrustScore
-                trust, _ = TrustScore.objects.get_or_create(user=self.renter)
-                updated_fields = []
+                TrustScore.objects.get_or_create(user=self.renter)
                 if new_status == BookingStatus.CANCELLED:
-                    trust.cancelled_bookings += 1
-                    updated_fields.append('cancelled_bookings')
+                    TrustScore.objects.filter(user=self.renter).update(
+                        cancelled_bookings=F('cancelled_bookings') + 1,
+                        last_calculated=timezone.now()
+                    )
                 if new_status == BookingStatus.COMPLETED:
-                    trust.completed_bookings += 1
-                    updated_fields.append('completed_bookings')
-                if updated_fields:
-                    trust.save(update_fields=updated_fields + ['last_calculated'])
+                    TrustScore.objects.filter(user=self.renter).update(
+                        completed_bookings=F('completed_bookings') + 1,
+                        last_calculated=timezone.now()
+                    )
         
         return True
     
@@ -382,18 +386,15 @@ class Booking(models.Model):
         return True, None
     
     def calculate_late_fee(self, return_time):
-        """Calculate late fee based on return time."""
-        late_duration = return_time - self.end_time
-        late_seconds = max(late_duration.total_seconds(), 0)
+        late_seconds = max((return_time - self.end_time).total_seconds(), 0)
         if late_seconds <= 0:
             return Decimal('0.00')
         late_hours = Decimal(str(late_seconds / 3600))
         late_fee = late_hours * self.late_fee_per_unit * Decimal(str(self.quantity))
-
-        # Escalate to max fee for significant lateness.
-        if self.late_fee_max > Decimal('0.00') and late_hours >= Decimal('3'):
-            return self.late_fee_max
-
+        if self.late_fee_max is None:
+            return late_fee
+        if self.late_fee_max == Decimal('0.00'):
+            return Decimal('0.00')
         return min(late_fee, self.late_fee_max)
     
     def get_duration_hours(self):
@@ -594,3 +595,28 @@ class AvailabilitySlot(models.Model):
     def is_full(self):
         """Check if slot is fully booked."""
         return self.booked_quantity >= self.capacity
+
+
+class VenueQuote(models.Model):
+    venue = models.ForeignKey('assets.Asset', on_delete=models.CASCADE)
+    requester = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    event_type = models.CharField(choices=[('WEDDING','Wedding'),('CONFERENCE','Conference'),('OTHER','Other')], max_length=50)
+    event_date = models.DateField()
+    duration_hours = models.PositiveIntegerField()
+    headcount = models.PositiveIntegerField()
+    setup_time_hours = models.PositiveIntegerField(default=2)
+    teardown_time_hours = models.PositiveIntegerField(default=1)
+    catering_required = models.BooleanField(default=False)
+    av_required = models.BooleanField(default=False)
+    add_ons = models.JSONField(default=list)
+    quoted_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    quote_valid_until = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(choices=[('PENDING','Pending'),('QUOTED','Quoted'),('ACCEPTED','Accepted'),('REJECTED','Rejected')], default='PENDING', max_length=50)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'venue_quotes'
+        verbose_name = 'Venue Quote'
+        verbose_name_plural = 'Venue Quotes'

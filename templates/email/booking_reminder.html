@@ -1,0 +1,8 @@
+{% extends "email/base.html" %}
+{% block content %}
+<h2>Booking Reminder</h2>
+<p>Hello {{ user.get_full_name }},</p>
+<p>This is a reminder that your booking for <strong>{{ booking.asset.name }}</strong> starts soon.</p>
+<p><strong>Start Time:</strong> {{ booking.start_time|date:"DATETIME_FORMAT" }}</p>
+<p><a href="{{ settings.FRONTEND_URL }}{{ action_url }}">View Booking Details</a></p>
+{% endblock %}

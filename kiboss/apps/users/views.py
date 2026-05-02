@@ -18,6 +18,11 @@ from datetime import timedelta
 from django.db import transaction
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 class BusinessConfigView(APIView):
     """
     Fetch global business settings (pricing, terms).
@@ -34,6 +39,18 @@ class BusinessConfigView(APIView):
         })
 
 
+class BusinessCategoryListView(APIView):
+    """
+    GET /api/v1/users/business/categories/
+    Returns CorporateProfile.Category.choices
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        categories = [{'value': choice[0], 'label': choice[1]} for choice in CorporateProfile.Category.choices]
+        return Response(categories)
+
+
 class CorporateRegistrationView(APIView):
     """
     API endpoint for corporate account registration.
@@ -41,6 +58,11 @@ class CorporateRegistrationView(APIView):
     """
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
+    
+    def get_throttles(self):
+        if self.request.method in ['POST', 'PATCH']:
+            self.throttle_scope = 'upload'
+        return super().get_throttles()
     
     def post(self, request):
         user = request.user
@@ -313,7 +335,7 @@ class CurrentUserView(APIView):
         if 'banner_image' in request.FILES:
             profile_data['banner_image'] = request.FILES['banner_image']
         
-        print(f"DEBUG: Updating user {user.email}. user_data keys: {list(user_data.keys())}, profile_data keys: {list(profile_data.keys())}")
+        logger.debug(f"Updating user {user.email}. user_data keys: {list(user_data.keys())}, profile_data keys: {list(profile_data.keys())}")
         
         # Update user fields
         if user_data:
@@ -321,7 +343,7 @@ class CurrentUserView(APIView):
             if user_serializer.is_valid():
                 user_serializer.save()
             else:
-                print(f"DEBUG: User update failed: {user_serializer.errors}")
+                logger.debug(f"User update failed: {user_serializer.errors}")
                 return Response(
                     {'error': 'Failed to update user', 'details': user_serializer.errors},
                     status=status.HTTP_400_BAD_REQUEST
@@ -334,7 +356,7 @@ class CurrentUserView(APIView):
             if profile_serializer.is_valid():
                 profile_serializer.save()
             else:
-                print(f"DEBUG: Profile update failed: {profile_serializer.errors}")
+                logger.debug(f"Profile update failed: {profile_serializer.errors}")
                 return Response(
                     {'error': 'Failed to update profile', 'details': profile_serializer.errors},
                     status=status.HTTP_400_BAD_REQUEST
@@ -374,6 +396,7 @@ class RegisterView(APIView):
     POST /api/v1/users/register/
     """
     permission_classes = [AllowAny]
+    throttle_scope = 'auth'
 
     def post(self, request):
         email = request.data.get('email')
@@ -661,6 +684,7 @@ class WorkerPasswordResetView(APIView):
     POST: Reset password for a specific worker.
     """
     permission_classes = [IsAuthenticated]
+    throttle_scope = 'auth'
 
     def post(self, request):
         if not hasattr(request.user, 'corporate_profile') or request.user.corporate_profile.verification_status != 'VERIFIED':
@@ -731,7 +755,10 @@ class CurrentUserAnalyticsView(APIView):
         total_earnings = completed_bookings.aggregate(Sum('total_price'))['total_price__sum'] or float(0)
         total_completed_bookings = completed_bookings.count()
         pending_requests = Booking.objects.filter(asset__owner=user, status='PENDING').count()
-        views_count = total_assets * 15 # Placeholder until page views model exists
+        
+        # Calculate real page views
+        from kiboss.apps.assets.models import PageView
+        views_count = PageView.objects.filter(asset__owner=user).count()
 
         # Advanced Analytics
         revenue_trend = []
@@ -860,6 +887,8 @@ def set_auth_cookies(response, access_token, refresh_token=None):
         )
 
 class CookieTokenObtainPairView(TokenObtainPairView):
+    throttle_scope = 'auth'
+
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
         if response.status_code == 200:

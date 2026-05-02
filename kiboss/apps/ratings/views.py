@@ -6,9 +6,9 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import transaction
 from django.utils import timezone
-from kiboss.apps.ratings.models import Rating, TrustDetails, RatingCategory, RatingStatus
+from kiboss.apps.ratings.models import Rating, RatingCategory, RatingStatus
 from kiboss.apps.ratings.serializers import (
-    RatingSerializer, RatingCreateSerializer, TrustDetailsSerializer
+    RatingSerializer, RatingCreateSerializer
 )
 from kiboss.apps.bookings.models import Booking, BookingStatus
 
@@ -156,22 +156,3 @@ class RatingViewSet(viewsets.ModelViewSet):
         
         serializer = RatingSerializer(rating)
         return Response(serializer.data)
-
-
-class TrustDetailsViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet for managing trust details.
-    """
-    queryset = TrustDetails.objects.all()
-    serializer_class = TrustDetailsSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    
-    def get_queryset(self):
-        queryset = TrustDetails.objects.select_related('user')
-        
-        # Filter by user
-        user_id = self.request.query_params.get('user_id')
-        if user_id:
-            queryset = queryset.filter(user_id=user_id)
-        
-        return queryset

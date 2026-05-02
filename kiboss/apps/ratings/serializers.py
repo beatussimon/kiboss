@@ -2,7 +2,7 @@
 Serializers for Ratings API
 """
 from rest_framework import serializers
-from kiboss.apps.ratings.models import Rating, TrustDetails, RatingCategory, RatingStatus
+from kiboss.apps.ratings.models import Rating, RatingCategory, RatingStatus
 
 
 class RatingSerializer(serializers.ModelSerializer):
@@ -40,17 +40,3 @@ class RatingCreateSerializer(serializers.Serializer):
     comment = serializers.CharField(max_length=2000, required=False, allow_blank=True)
     private_feedback = serializers.CharField(max_length=1000, required=False, allow_blank=True)
     asset_rating = serializers.IntegerField(min_value=1, max_value=5, required=False)
-
-
-class TrustDetailsSerializer(serializers.ModelSerializer):
-    """Serializer for TrustDetails model."""
-    
-    class Meta:
-        model = TrustDetails
-        fields = [
-            'id', 'user',
-            'reliability_score', 'communication_score', 'cleanliness_score',
-            'timeliness_score', 'overall_score',
-            'badges', 'last_calculated'
-        ]
-        read_only_fields = ['id', 'last_calculated']

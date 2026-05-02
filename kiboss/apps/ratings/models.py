@@ -7,6 +7,7 @@ from decimal import Decimal
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 
 
 class RatingCategory(models.TextChoices):
@@ -38,6 +39,8 @@ class Rating(models.Model):
     booking = models.ForeignKey(
         'bookings.Booking',
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name='ratings'
     )
     ride = models.ForeignKey(
@@ -127,6 +130,13 @@ class Rating(models.Model):
             ['booking', 'reviewer'],   # One review per user per booking
             ['ride', 'reviewer'],       # One review per user per ride
         ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(booking__isnull=False, ride__isnull=True) |
+                          models.Q(booking__isnull=True, ride__isnull=False),
+                name='rating_exactly_one_source'
+            )
+        ]
     
     def __str__(self):
         return f"Rating {self.id}: {self.reviewer.email} -> {self.reviewee.email}"
@@ -147,40 +157,3 @@ class Rating(models.Model):
         self.is_mutually_revealed = True
         self.revealed_at = timezone.now()
         self.save()
-
-
-class TrustDetails(models.Model):
-    """Detailed trust score for users."""
-    
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='trust_details'
-    )
-    
-    reliability_score = models.DecimalField(max_digits=5, decimal_places=2, default=DEFAULT_TRUST)
-    communication_score = models.DecimalField(max_digits=5, decimal_places=2, default=DEFAULT_TRUST)
-    cleanliness_score = models.DecimalField(max_digits=5, decimal_places=2, default=DEFAULT_TRUST)
-    timeliness_score = models.DecimalField(max_digits=5, decimal_places=2, default=DEFAULT_TRUST)
-    overall_score = models.DecimalField(max_digits=5, decimal_places=2, default=DEFAULT_TRUST)
-    badges = models.JSONField(default=list, blank=True)
-    last_calculated = models.DateTimeField(auto_now=True)
-    
-    class Meta:
-        db_table = 'trust_details'
-    
-    def __str__(self):
-        return f"Trust details for {self.user.email}"
-    
-    def calculate_overall(self):
-        self.overall_score = (
-            self.reliability_score * Decimal('0.25') +
-            self.communication_score * Decimal('0.25') +
-            self.cleanliness_score * Decimal('0.2') +
-            self.timeliness_score * Decimal('0.3')
-        )
-        self.save()
-
-
-from django.utils import timezone

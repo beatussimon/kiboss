@@ -1,0 +1,8 @@
+{% extends "email/base.html" %}
+{% block content %}
+<h2>Payment Received</h2>
+<p>Hello {{ user.get_full_name }},</p>
+<p>We have received your payment for <strong>{{ booking.asset.name }}</strong>.</p>
+<p><strong>Amount:</strong> {{ booking.total_price }}</p>
+<p><a href="{{ settings.FRONTEND_URL }}{{ action_url }}">View Receipt</a></p>
+{% endblock %}

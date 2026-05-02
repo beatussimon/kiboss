@@ -110,11 +110,20 @@ class UserQuerySet(models.QuerySet):
     """Custom queryset to handle safe cleanup of related protected records."""
 
     def delete(self, *args, **kwargs):
+        from django.core.exceptions import PermissionDenied
+        from django.db.models import Q
         from kiboss.apps.bookings.models import Booking
         from kiboss.apps.rides.models import Ride, SeatBooking, RideSchedule
         from kiboss.apps.payments.models import Payment, Dispute
 
         for user in self:
+            active = Booking.objects.filter(
+                Q(renter=user) | Q(asset__owner=user),
+                status__in=['ACTIVE', 'CONFIRMED']
+            ).exists()
+            if active:
+                raise PermissionDenied(f"Cannot delete user {user.email}: has active or confirmed bookings")
+
             SeatBooking.objects.filter(passenger=user).delete()
             RideSchedule.objects.filter(driver=user).delete()
             Ride.objects.filter(driver=user).delete()
@@ -580,8 +589,15 @@ class CorporateProfile(models.Model):
         REJECTED = 'REJECTED', 'Rejected'
 
     class Category(models.TextChoices):
-        RIDE = 'RIDE', 'Ride Business'
-        ASSET = 'ASSET', 'Asset Business'
+        RIDE = 'RIDE', 'Ride / Transport Business'
+        HOSPITALITY = 'HOSPITALITY', 'Hotel / Guest House / Hostel'
+        HOME_SHARING = 'HOME_SHARING', 'Home Sharing (Airbnb-style)'
+        VENUE = 'VENUE', 'Event Venue / Conference Center'
+        STUDIO = 'STUDIO', 'Studio / Creative Space'
+        COWORKING = 'COWORKING', 'Co-working / Office Space'
+        EQUIPMENT = 'EQUIPMENT', 'Equipment / Tool Rental'
+        ENTERTAINMENT = 'ENTERTAINMENT', 'Entertainment / Recreation'
+        ENTERPRISE = 'ENTERPRISE', 'General Enterprise'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(
@@ -596,9 +612,9 @@ class CorporateProfile(models.Model):
     verification_documents = models.JSONField(default=list, blank=True)
     
     business_category = models.CharField(
-        max_length=10,
+        max_length=20,
         choices=Category.choices,
-        default=Category.ASSET
+        default=Category.ENTERPRISE
     )
     
     verification_status = models.CharField(
@@ -678,10 +694,30 @@ class CorporateWorker(models.Model):
     Supports invite workflow: email sent first, user FK linked on accept.
     """
     class Role(models.TextChoices):
+        MANAGER = 'MANAGER', 'General Manager'
+        ACCOUNTANT = 'ACCOUNTANT', 'Accountant / Finance'
         DRIVER = 'DRIVER', 'Driver'
-        ACCOUNTANT = 'ACCOUNTANT', 'Accountant'
-        MANAGER = 'MANAGER', 'Manager'
-        SUPPORT = 'SUPPORT', 'Customer Support'
+        DISPATCHER = 'DISPATCHER', 'Dispatcher'
+        MECHANIC = 'MECHANIC', 'Vehicle Mechanic'
+        FRONT_DESK = 'FRONT_DESK', 'Front Desk / Receptionist'
+        HOUSEKEEPER = 'HOUSEKEEPER', 'Housekeeper / Cleaning'
+        CONCIERGE = 'CONCIERGE', 'Concierge'
+        MAINTENANCE = 'MAINTENANCE', 'Maintenance Technician'
+        SECURITY = 'SECURITY', 'Security Officer'
+        CO_HOST = 'CO_HOST', 'Co-Host (Home Sharing)'
+        CHEF = 'CHEF', 'Chef / Kitchen Staff'
+        WAITER = 'WAITER', 'Waiter / Server'
+        EVENT_COORDINATOR = 'EVENT_COORDINATOR', 'Event Coordinator'
+        AV_TECHNICIAN = 'AV_TECHNICIAN', 'AV Technician'
+        SETUP_CREW = 'SETUP_CREW', 'Setup / Teardown Crew'
+        CATERING_STAFF = 'CATERING_STAFF', 'Catering Staff'
+        RECORDING_ENGINEER = 'RECORDING_ENGINEER', 'Recording Engineer'
+        ASSISTANT_ENGINEER = 'ASSISTANT_ENGINEER', 'Assistant Engineer'
+        COMMUNITY_MANAGER = 'COMMUNITY_MANAGER', 'Community Manager'
+        IT_SUPPORT = 'IT_SUPPORT', 'IT Support'
+        TECHNICIAN = 'TECHNICIAN', 'Equipment Technician'
+        DELIVERY_DRIVER = 'DELIVERY_DRIVER', 'Delivery Driver'
+        CUSTOMER_SUPPORT = 'CUSTOMER_SUPPORT', 'Customer Support'
 
     class InviteStatus(models.TextChoices):
         INVITED = 'INVITED', 'Invited'

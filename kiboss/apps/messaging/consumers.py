@@ -1,3 +1,7 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
@@ -64,36 +68,36 @@ class ChatConsumer(AsyncWebsocketConsumer):
     # Receive message from room group
     async def chat_message(self, event):
         try:
-            print(f"DEBUG: ChatConsumer RECEIVED chat_message event for {self.room_group_name}")
+            logger.debug(f"DEBUG: ChatConsumer RECEIVED chat_message event for {self.room_group_name}")
             # Send message to WebSocket
             await self.send(text_data=json.dumps({
                 'type': 'new_message',
                 'data': event['data']
             }))
         except Exception as e:
-            print(f"DEBUG: ChatConsumer failed to send chat_message: {str(e)}")
+            logger.debug(f"DEBUG: ChatConsumer failed to send chat_message: {str(e)}")
 
     async def chat_typing(self, event):
         try:
-            print(f"DEBUG: ChatConsumer RECEIVED typing event for {self.room_group_name}")
+            logger.debug(f"DEBUG: ChatConsumer RECEIVED typing event for {self.room_group_name}")
             await self.send(text_data=json.dumps({
                 'type': 'typing',
                 'user_id': event['user_id'],
                 'is_typing': event['is_typing']
             }))
         except Exception as e:
-            print(f"DEBUG: ChatConsumer failed to send typing: {str(e)}")
+            logger.debug(f"DEBUG: ChatConsumer failed to send typing: {str(e)}")
 
     async def chat_read_receipt(self, event):
         try:
-            print(f"DEBUG: ChatConsumer RECEIVED read_receipt event for {self.room_group_name}")
+            logger.debug(f"DEBUG: ChatConsumer RECEIVED read_receipt event for {self.room_group_name}")
             await self.send(text_data=json.dumps({
                 'type': 'read',
                 'user_id': event['user_id'],
                 'message_ids': event['message_ids']
             }))
         except Exception as e:
-            print(f"DEBUG: ChatConsumer failed to send read_receipt: {str(e)}")
+            logger.debug(f"DEBUG: ChatConsumer failed to send read_receipt: {str(e)}")
 
     @database_sync_to_async
     def is_participant(self, thread_id, user):

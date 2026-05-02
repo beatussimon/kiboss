@@ -40,6 +40,38 @@ class AssetType(models.TextChoices):
     CONFERENCE_HALL = 'CONFERENCE_HALL', 'Conference Hall'
     DINING_TABLE = 'DINING_TABLE', 'Dining Table'
 
+    # Residential & Professional Spaces
+    OFFICE_SPACE = 'OFFICE_SPACE', 'Office Space'
+    APARTMENT = 'APARTMENT', 'Apartment'
+    ENTIRE_HOME = 'ENTIRE_HOME', 'Entire Home'
+    PRIVATE_ROOM = 'PRIVATE_ROOM', 'Private Room in Home'
+    SHARED_ROOM = 'SHARED_ROOM', 'Shared Room'
+    GUEST_HOUSE = 'GUEST_HOUSE', 'Guest House'
+    EVENT_VENUE = 'EVENT_VENUE', 'Event Venue'
+    OUTDOOR_SPACE = 'OUTDOOR_SPACE', 'Outdoor Space'
+    BANQUET_HALL = 'BANQUET_HALL', 'Banquet Hall'
+    ROOFTOP = 'ROOFTOP', 'Rooftop / Terrace'
+    RECORDING_STUDIO = 'RECORDING_STUDIO', 'Recording Studio'
+    PHOTO_STUDIO = 'PHOTO_STUDIO', 'Photography Studio'
+    DANCE_STUDIO = 'DANCE_STUDIO', 'Dance / Fitness Studio'
+    PODCAST_STUDIO = 'PODCAST_STUDIO', 'Podcast Studio'
+    ART_STUDIO = 'ART_STUDIO', 'Art Studio'
+    HOT_DESK = 'HOT_DESK', 'Hot Desk'
+    MEETING_ROOM = 'MEETING_ROOM', 'Meeting Room'
+    PRIVATE_DINING_ROOM = 'PRIVATE_DINING_ROOM', 'Private Dining Room'
+    
+    # Specialized Storage & Transport
+    PARKING_SPACE = 'PARKING_SPACE', 'Parking Space'
+    STORAGE_UNIT = 'STORAGE_UNIT', 'Storage Unit'
+    BOAT = 'BOAT', 'Boat / Watercraft'
+    BICYCLE = 'BICYCLE', 'Bicycle / E-bike'
+    
+    # Specialized Equipment
+    SPORTS_EQUIPMENT = 'SPORTS_EQUIPMENT', 'Sports Equipment'
+    GENERATOR = 'GENERATOR', 'Generator'
+    MUSICAL_INSTRUMENT = 'MUSICAL_INSTRUMENT', 'Musical Instrument'
+    CAMERA_EQUIPMENT = 'CAMERA_EQUIPMENT', 'Camera Equipment'
+
 
 class VerificationStatus(models.TextChoices):
     """Asset verification status."""
@@ -120,6 +152,7 @@ class Asset(models.Model):
     # Status
     is_active = models.BooleanField(default=True)
     is_listed = models.BooleanField(default=True)
+    instant_book = models.BooleanField(default=True, help_text='If False, owner must approve before payment')
     
     # Statistics
     total_bookings = models.IntegerField(default=0)
@@ -209,34 +242,20 @@ class Asset(models.Model):
                 if missing:
                     raise ValidationError({'verification_status': f"Vehicle cannot be APPROVED without these documents: {', '.join(missing)}."})
 
-    def save(self, *args, **kwargs):
-        """
-        Enforce business rules and anti-fraud logic.
-        """
-        # Run standard validation
-        self.clean()
-        
-        # Anti-Fraud: "Bait and Switch" Protection
-        # If critical fields change on a VERIFIED asset, revoke status.
-        if self.pk:
-            try:
-                original = Asset.objects.get(pk=self.pk)
-                critical_fields = ['name', 'address', 'city', 'country', 'asset_type']
-                is_changed = any(getattr(self, field) != getattr(original, field) for field in critical_fields)
-                
-                if is_changed and self.verification_status == VerificationStatus.VERIFIED:
-                    self.verification_status = VerificationStatus.PENDING
-                    self.verification_notes = f"System: Verification revoked due to changes in {', '.join(critical_fields)}."
-                    self.is_listed = False # Delist immediately
-            except Asset.DoesNotExist:
-                # This should not happen if self.pk exists but just in case
-                pass
-        
-        # Rule: Corporate assets cannot be listed until verified.
-        if self.is_corporate and self.verification_status != VerificationStatus.VERIFIED:
-            self.is_listed = False
-            
-        super().save(*args, **kwargs)
+        # 4. Property Schema Validation
+        from .property_schemas import ASSET_SCHEMAS
+        schema = ASSET_SCHEMAS.get(self.asset_type)
+        if schema:
+            required_fields = schema.get('required', [])
+            missing_fields = [field for field in required_fields if field not in self.properties]
+            if missing_fields:
+                raise ValidationError({'properties': f"Missing required properties for {self.get_asset_type_display()}: {', '.join(missing_fields)}"})
+
+    def save(self, *args, update_fields=None, **kwargs):
+        material_fields = {'name', 'address', 'city', 'country', 'asset_type', 'properties'}
+        if update_fields is None or material_fields.intersection(set(update_fields)):
+            self.clean()
+        super().save(*args, update_fields=update_fields, **kwargs)
 
 
 class AssetPhoto(models.Model):
@@ -274,6 +293,18 @@ class AssetDocument(models.Model):
         ('INSURANCE', 'Insurance Policy'),
         ('INSPECTION', 'Safety Inspection'),
         ('OWNERSHIP', 'Proof of Ownership'),
+        ('BUSINESS_LICENSE', 'Business License'),
+        ('TOURISM_LICENSE', 'Tourism License'),
+        ('HEALTH_CERTIFICATE', 'Health Certificate'),
+        ('FIRE_SAFETY_CERTIFICATE', 'Fire Safety Certificate'),
+        ('PUBLIC_LIABILITY_INSURANCE', 'Public Liability Insurance'),
+        ('LIQUOR_LICENSE', 'Liquor License'),
+        ('TAX_CLEARANCE', 'Tax Clearance'),
+        ('BUILDING_PERMIT', 'Building Permit'),
+        ('LEASE_AGREEMENT', 'Lease Agreement'),
+        ('OWNERSHIP_PROOF', 'Ownership Proof'),
+        ('INSURANCE_POLICY', 'Insurance Policy (General)'),
+        ('FOOD_HANDLING_CERT', 'Food Handling Certificate'),
         ('OTHER', 'Other'),
     ]
     
@@ -497,11 +528,44 @@ class AssetAvailability(models.Model):
         Returns:
             tuple: (is_available, reason)
         """
-        # Check buffer requirements
-        # Check min/max advance booking
-        # Check schedule
-        # Check blocked dates
-        # Check exceptions
+        from django.utils import timezone
+        from datetime import timedelta, date, time
+        from kiboss.apps.bookings.models import Booking
+        now = timezone.now()
+        # 1. Advance booking check
+        min_advance = timedelta(minutes=self.min_advance_booking_minutes)
+        if start_time < now + min_advance:
+            return False, f"Booking must be made at least {self.min_advance_booking_minutes} minutes in advance"
+        max_advance = timedelta(days=self.max_advance_booking_days)
+        if start_time > now + max_advance:
+            return False, f"Cannot book more than {self.max_advance_booking_days} days in advance"
+        # 2. Blocked dates check
+        for blocked in self.blocked_dates:
+            blocked_date = date.fromisoformat(blocked)
+            if start_time.date() <= blocked_date <= end_time.date():
+                return False, f"Asset is blocked on {blocked_date}"
+        # 3. Schedule check
+        if self.availability_type == 'SCHEDULED' and self.schedule:
+            days = self.schedule.get('days_of_week', list(range(7)))
+            if start_time.weekday() not in days:
+                return False, "Asset not available on this day"
+            from_time = self.schedule.get('from_time')
+            to_time = self.schedule.get('to_time')
+            if from_time and start_time.time() < time.fromisoformat(from_time):
+                return False, "Start time before available hours"
+            if to_time and end_time.time() > time.fromisoformat(to_time):
+                return False, "End time after available hours"
+        # 4. Buffer check
+        if self.buffer_minutes > 0:
+            buffer = timedelta(minutes=self.buffer_minutes)
+            conflict = Booking.objects.filter(
+                asset=self.asset,
+                status__in=['PENDING','CONFIRMED','ACTIVE'],
+                end_time__gt=start_time - buffer,
+                start_time__lt=end_time + buffer
+            ).exclude(start_time__gte=end_time, end_time__lte=start_time).exists()
+            if conflict:
+                return False, f"Booking requires {self.buffer_minutes} minute buffer between bookings"
         return True, None
 
 
@@ -601,6 +665,25 @@ class AssetTimeGranularity(models.Model):
             if start_time.strftime('%H:%M') not in self.allowed_start_times:
                 return False, "Start time not in allowed times"
         return True, None
+
+
+class PageView(models.Model):
+    asset = models.ForeignKey('Asset', on_delete=models.CASCADE, related_name='page_views')
+    viewer_ip_hash = models.CharField(max_length=64)
+    session_id = models.CharField(max_length=64, blank=True)
+    referrer = models.CharField(max_length=500, blank=True)
+    viewed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['asset', 'viewed_at'])]
+
+
+class SearchImpression(models.Model):
+    asset = models.ForeignKey('Asset', on_delete=models.CASCADE, related_name='search_impressions')
+    search_query = models.CharField(max_length=255, blank=True)
+    position_in_results = models.PositiveIntegerField()
+    was_clicked = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class AssetJurisdiction(models.Model):

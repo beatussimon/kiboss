@@ -8,14 +8,18 @@ from rest_framework import viewsets, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
 from django.db import transaction
-from kiboss.apps.bookings.models import Booking
+from kiboss.apps.bookings.models import Booking, VenueQuote
 from kiboss.apps.bookings.serializers import (
     BookingCreateSerializer, BookingResponseSerializer,
     BookingUpdateSerializer,
-    BookingCancelSerializer, BookingCompleteSerializer, BookingTimelineSerializer
+    BookingCancelSerializer, BookingCompleteSerializer, BookingTimelineSerializer,
+    VenueQuoteSerializer
 )
 from kiboss.apps.bookings.services import BookingService, BookingError
+from kiboss.apps.bookings.hotel_service import HotelBookingService
+from kiboss.apps.bookings.venue_service import VenueBookingService
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +30,7 @@ UUID_PATTERN = re.compile(
 )
 
 
-class BookingViewSet(viewsets.ViewSet):
+class BookingViewSet(viewsets.GenericViewSet):
     """
     ViewSet for managing bookings.
     
@@ -41,6 +45,12 @@ class BookingViewSet(viewsets.ViewSet):
     """
     
     permission_classes = [IsAuthenticated]
+    pagination_class = PageNumberPagination
+    
+    def get_throttles(self):
+        if self.action == 'create':
+            self.throttle_scope = 'booking_create'
+        return super().get_throttles()
     
     @action(detail=False, methods=['get'])
     def new(self, request):
@@ -128,6 +138,9 @@ class BookingViewSet(viewsets.ViewSet):
         combined = asset_data + ride_data
         combined.sort(key=lambda x: x.get('created_at', ''), reverse=True)
         
+        page = self.paginate_queryset(combined)
+        if page is not None:
+            return self.get_paginated_response(page)
         return Response(combined)
 
     @action(detail=False, methods=['get'])
@@ -282,16 +295,38 @@ class BookingViewSet(viewsets.ViewSet):
         serializer.is_valid(raise_exception=True)
         
         try:
-            booking = BookingService.create_booking(
-                renter=request.user,
-                asset_id=serializer.validated_data['asset_id'],
-                start_time=serializer.validated_data['start_time'],
-                end_time=serializer.validated_data['end_time'],
-                quantity=serializer.validated_data.get('quantity', 1),
-                notes=serializer.validated_data.get('notes', ''),
-                driver_license_number=serializer.validated_data.get('driver_license_number'),
-                driving_experience_years=serializer.validated_data.get('driving_experience_years')
-            )
+            from kiboss.apps.assets.models import Asset
+            asset = Asset.objects.get(id=serializer.validated_data['asset_id'])
+
+            if request.data.get('hotel_booking'):
+                booking = HotelBookingService.create_hotel_booking(
+                    renter=request.user,
+                    asset=asset,
+                    start_time=serializer.validated_data['start_time'],
+                    end_time=serializer.validated_data['end_time'],
+                    quantity=serializer.validated_data.get('quantity', 1),
+                    hotel_data=request.data.get('hotel_booking')
+                )
+            elif request.data.get('venue_booking'):
+                booking = VenueBookingService.create_venue_booking(
+                    renter=request.user,
+                    asset=asset,
+                    start_time=serializer.validated_data['start_time'],
+                    end_time=serializer.validated_data['end_time'],
+                    quantity=serializer.validated_data.get('quantity', 1),
+                    venue_data=request.data.get('venue_booking')
+                )
+            else:
+                booking = BookingService.create_booking(
+                    renter=request.user,
+                    asset_id=serializer.validated_data['asset_id'],
+                    start_time=serializer.validated_data['start_time'],
+                    end_time=serializer.validated_data['end_time'],
+                    quantity=serializer.validated_data.get('quantity', 1),
+                    notes=serializer.validated_data.get('notes', ''),
+                    driver_license_number=serializer.validated_data.get('driver_license_number'),
+                    driving_experience_years=serializer.validated_data.get('driving_experience_years')
+                )
             
             # Return full booking details
             response_serializer = BookingResponseSerializer(booking)
@@ -511,12 +546,16 @@ class BookingViewSet(viewsets.ViewSet):
         if booking.renter != request.user:
             return Response({'error': 'Only the renter can confirm payment'}, status=status.HTTP_403_FORBIDDEN)
 
+        payment_method = request.data.get('payment_method', 'OFFLINE')
+        if payment_method == 'OFFLINE':
+            return Response({'error': 'Use manual payment endpoint for offline'}, status=status.HTTP_400_BAD_REQUEST)
+
         payment, _ = Payment.objects.get_or_create(
             booking=booking,
             defaults={
                 'amount': booking.total_price,
                 'currency': booking.currency,
-                'payment_method': 'CREDIT_CARD',
+                'payment_method': payment_method,
             }
         )
 
@@ -615,3 +654,20 @@ class BookingViewSet(viewsets.ViewSet):
                 {'error': f'Failed to fetch timeline: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class VenueQuoteViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing venue quotes.
+    """
+    queryset = VenueQuote.objects.all()
+    serializer_class = VenueQuoteSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        if self.request.user.is_staff:
+            return VenueQuote.objects.all()
+        return VenueQuote.objects.filter(requester=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(requester=self.request.user)

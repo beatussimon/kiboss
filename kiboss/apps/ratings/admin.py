@@ -8,7 +8,7 @@ from django.contrib import admin
 from django.http import HttpResponse
 from django.utils.html import format_html
 
-from .models import Rating, TrustDetails, RatingStatus, RatingCategory
+from .models import Rating, RatingStatus, RatingCategory
 
 
 # =============================================================================
@@ -171,41 +171,6 @@ class RatingAdmin(admin.ModelAdmin):
         )
     status_badge.short_description = 'Status'
     status_badge.admin_order_field = 'status'
-
-
-@admin.register(TrustDetails)
-class TrustDetailsAdmin(admin.ModelAdmin):
-    """
-    Admin configuration for TrustDetails model.
-    """
-    
-    readonly_fields = ['last_calculated']
-    list_display = [
-        'user', 'reliability_score', 'communication_score',
-        'cleanliness_score', 'timeliness_score', 'overall_score',
-        'last_calculated'
-    ]
-    search_fields = ['user__email']
-    ordering = ['-overall_score']
-    list_per_page = 25
-    
-    fieldsets = (
-        ('User', {
-            'fields': ('user',)
-        }),
-        ('Score Components', {
-            'fields': ('reliability_score', 'communication_score',
-                      'cleanliness_score', 'timeliness_score', 'overall_score')
-        }),
-        ('Badges', {
-            'fields': ('badges',)
-        }),
-        ('Last Calculated', {
-            'fields': ('last_calculated',)
-        }),
-    )
-    
-    actions = [export_to_csv]
 
 
 # =============================================================================

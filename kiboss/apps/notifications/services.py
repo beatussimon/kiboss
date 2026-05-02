@@ -8,12 +8,96 @@ across all system events including bookings, rides, payments, messages, etc.
 import logging
 from django.utils import timezone
 from django.db import transaction
+from celery import shared_task
 from .models import (
     Notification, NotificationCategory, NotificationStatus, NotificationChannel,
     NotificationPreference
 )
+from .push_service import PushNotificationService
+from django.core.mail import send_mail
+from django.template.loader import render_to_string
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
+
+
+@shared_task
+def send_notification_task(
+    user_id,
+    category,
+    notification_type,
+    title,
+    message,
+    action_url='',
+    booking_id=None,
+    ride_id=None,
+    priority=0,
+    channels=None,
+    data=None
+):
+    """Celery task to create and send notification."""
+    from kiboss.apps.users.models import User
+    from kiboss.apps.bookings.models import Booking
+    from kiboss.apps.rides.models import Ride
+
+    try:
+        user = User.objects.get(id=user_id)
+        booking = Booking.objects.get(id=booking_id) if booking_id else None
+        ride = Ride.objects.get(id=ride_id) if ride_id else None
+
+        if channels is None:
+            channels = [NotificationChannel.IN_APP]
+
+        notification = Notification.objects.create(
+            user=user,
+            category=category,
+            notification_type=notification_type,
+            title=title,
+            message=message,
+            action_url=action_url,
+            booking=booking,
+            ride=ride,
+            priority=priority,
+            channels=channels,
+            status=NotificationStatus.SENT,
+            sent_at=timezone.now(),
+            data=data or {}
+        )
+        logger.info(f"Async notification {notification.id} created for user {user.id}")
+
+        # Deliver to other channels
+        if NotificationChannel.PUSH in channels:
+            PushNotificationService.send(user, title, message, data=data)
+        
+        if NotificationChannel.EMAIL in channels:
+            # T5-08: Email Notification wiring
+            try:
+                template_name = f"email/{notification_type.lower()}.html"
+                context = {
+                    'user': user,
+                    'title': title,
+                    'message': message,
+                    'action_url': action_url,
+                    'booking': booking,
+                    'ride': ride,
+                    'data': data or {}
+                }
+                html_message = render_to_string(template_name, context)
+                send_mail(
+                    subject=title,
+                    message=message,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user.email],
+                    html_message=html_message,
+                    fail_silently=True
+                )
+            except Exception as e:
+                logger.error(f"Failed to send email notification: {e}")
+
+        return str(notification.id)
+    except Exception as e:
+        logger.error(f"Failed async notification for user {user_id}: {e}")
+        return None
 
 
 class NotificationService:
@@ -39,49 +123,22 @@ class NotificationService:
         data=None
     ):
         """
-        Create a new notification for a user.
-        
-        Args:
-            user: The user to notify
-            category: NotificationCategory choice
-            notification_type: Specific type within category (e.g., 'BOOKING_CREATED')
-            title: Notification title
-            message: Notification message
-            action_url: Optional URL for the notification action
-            booking: Optional related booking
-            ride: Optional related ride
-            priority: Priority level (higher = more important)
-            channels: List of channels to deliver to (default: ['IN_APP'])
-            data: Additional data to store
-        
-        Returns:
-            Notification instance
+        Create a new notification for a user (Asynchronously).
         """
-        if channels is None:
-            channels = [NotificationChannel.IN_APP]
-        
-        try:
-            notification = Notification.objects.create(
-                user=user,
-                category=category,
-                notification_type=notification_type,
-                title=title,
-                message=message,
-                action_url=action_url,
-                booking=booking,
-                ride=ride,
-                priority=priority,
-                channels=channels,
-                status=NotificationStatus.SENT,
-                sent_at=timezone.now()
-            )
-            
-            logger.info(f"Created notification {notification.id} for user {user.id}: {title}")
-            return notification
-            
-        except Exception as e:
-            logger.error(f"Failed to create notification for user {user.id}: {e}")
-            return None
+        send_notification_task.delay(
+            user_id=user.id,
+            category=category,
+            notification_type=notification_type,
+            title=title,
+            message=message,
+            action_url=action_url,
+            booking_id=booking.id if booking else None,
+            ride_id=ride.id if ride else None,
+            priority=priority,
+            channels=channels,
+            data=data
+        )
+        return None
     
     @staticmethod
     def notify_booking_created(booking):

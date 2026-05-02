@@ -479,26 +479,13 @@ class ManualPaymentViewSet(viewsets.ModelViewSet):
             booking = manual_payment.booking
             if manual_payment.booking_type == 'ASSET':
                 from kiboss.apps.bookings.services import BookingService
-                BookingService.confirm_booking(booking.id, request.user)
+                BookingService.confirm_booking(booking_id=booking.id, actor=request.user)
             elif manual_payment.booking_type == 'RIDE':
-                from kiboss.apps.rides.models import SeatBooking, SeatBookingStatus
-                booking.status = SeatBookingStatus.CONFIRMED
-                booking.save()
+                from kiboss.apps.rides.services import SeatBookingService
+                SeatBookingService.confirm_seat_booking(booking, request.user)
             elif manual_payment.booking_type == 'SUBSCRIPTION':
-                from datetime import timedelta
-                # Update subscription
-                duration_days = 30
-                if hasattr(booking, 'plan_type') and booking.plan_type == 'YEARLY':
-                    duration_days = 365
-                booking.status = 'ACTIVE'
-                booking.start_date = timezone.now()
-                booking.end_date = timezone.now() + timedelta(days=duration_days)
-                booking.save()
-                
-                # Also upgrade the user's account tier
-                if hasattr(booking, 'user'):
-                    booking.user.account_tier = booking.plan_type
-                    booking.user.save(update_fields=['account_tier', 'updated_at'])
+                from kiboss.apps.users.subscription_service import SubscriptionService
+                SubscriptionService.activate(booking, confirmed_by=request.user)
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"Error updating booking status: {e}")
@@ -529,6 +516,38 @@ class ManualPaymentViewSet(viewsets.ModelViewSet):
         
         serializer = ManualPaymentSerializer(manual_payment)
         return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def confirm_by_owner(self, request, pk=None):
+        manual_payment = self.get_object()
+        booking = manual_payment.booking
+        
+        # Check if user is owner of the asset or driver of the ride
+        is_owner = False
+        if manual_payment.booking_type == 'ASSET' and booking:
+            is_owner = booking.asset.owner == request.user
+        elif manual_payment.booking_type == 'RIDE' and booking:
+            is_owner = booking.ride.driver == request.user
+            
+        if not is_owner:
+            return Response({'error': 'Only the owner can confirm this payment'}, status=403)
+            
+        if manual_payment.status != ManualPayment.Status.PENDING:
+            return Response({'error': 'Payment is not in pending status'}, status=400)
+
+        manual_payment.status = ManualPayment.Status.APPROVED
+        manual_payment.reviewed_by = request.user
+        manual_payment.reviewed_at = timezone.now()
+        manual_payment.save()
+        
+        from kiboss.apps.bookings.services import BookingService
+        if manual_payment.booking_type == 'ASSET':
+            BookingService.confirm_booking(booking_id=booking.id, actor=request.user)
+        elif manual_payment.booking_type == 'RIDE':
+            from kiboss.apps.rides.services import SeatBookingService
+            SeatBookingService.confirm_seat_booking(booking, request.user)
+            
+        return Response({'status': 'confirmed'})
     
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):

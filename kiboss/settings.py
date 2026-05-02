@@ -149,10 +149,15 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_CLASSES': [
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle',
+        'rest_framework.throttling.ScopedRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '10/minute',
-        'user': '1000/minute',
+        'anon': '20/minute',
+        'user': '60/minute',
+        'booking_create': '10/hour',
+        'auth': '5/minute',
+        'upload': '20/hour',
+        'verification': '3/minute',
     },
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
@@ -224,6 +229,13 @@ CELERY_TASK_SOFT_TIME_LIMIT = int(os.environ.get('CELERY_TASK_SOFT_TIME_LIMIT', 
 CELERY_TASK_DEFAULT_RATE_LIMIT = os.environ.get('CELERY_TASK_DEFAULT_RATE_LIMIT', '10/m')
 CELERY_WORKER_CONCURRENCY = int(os.environ.get('CELERY_WORKER_CONCURRENCY', 4))
 CELERY_WORKER_MAX_TASKS_PER_CHILD = int(os.environ.get('CELERY_WORKER_MAX_TASKS_PER_CHILD', 1000))
+
+CELERY_BEAT_SCHEDULE = {
+    'expire-subscriptions-daily': {
+        'task': 'kiboss.apps.users.tasks.expire_subscriptions',
+        'schedule': timedelta(days=1),
+    },
+}
 
 # Logging
 LOGGING = {

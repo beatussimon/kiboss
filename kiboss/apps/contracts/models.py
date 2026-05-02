@@ -57,7 +57,7 @@ class Contract(models.Model):
     )
     
     # Jurisdiction
-    jurisdiction = models.CharField(max_length=100, default='US')
+    jurisdiction = models.CharField(max_length=100, default='TZ')
     governing_law = models.CharField(max_length=255, blank=True)
     
     # Terms (JSON)
@@ -104,8 +104,8 @@ class Contract(models.Model):
     
     def accept_by_owner(self, signature_data):
         """Accept contract by asset owner."""
-        if self.status != ContractStatus.PENDING:
-            raise ValueError("Contract is not pending acceptance")
+        if self.status not in [ContractStatus.PENDING, ContractStatus.ACCEPTED]:
+            raise ValueError("Contract cannot be signed in its current state")
         
         self.owner_signature = signature_data
         self.owner_accepted_at = timezone.now()
@@ -119,8 +119,8 @@ class Contract(models.Model):
     
     def accept_by_renter(self, signature_data):
         """Accept contract by renter."""
-        if self.status != ContractStatus.PENDING:
-            raise ValueError("Contract is not pending acceptance")
+        if self.status not in [ContractStatus.PENDING, ContractStatus.ACCEPTED]:
+            raise ValueError("Contract cannot be signed in its current state")
         
         self.renter_signature = signature_data
         self.renter_accepted_at = timezone.now()

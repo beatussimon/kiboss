@@ -6,8 +6,9 @@ from django.urls import path
 from .serializers import CustomTokenObtainPairSerializer
 from .views import (
     CurrentUserView, PublicUserView, RegisterView, CorporateRegistrationView, BusinessConfigView,
-    VerifyEmailView, CorporateWorkerViewSet, TierListView, UpgradeView, WorkerPasswordResetView, CurrentUserAnalyticsView,
-    CookieTokenObtainPairView, CookieTokenRefreshView, LogoutView
+    BusinessCategoryListView, VerifyEmailView, CorporateWorkerViewSet, TierListView, UpgradeView,
+    WorkerPasswordResetView, CurrentUserAnalyticsView, CookieTokenObtainPairView, CookieTokenRefreshView,
+    LogoutView
 )
 
 urlpatterns = [
@@ -17,6 +18,7 @@ urlpatterns = [
     path('corporate/workers/', CorporateWorkerViewSet.as_view(), name='corporate-workers'),
     path('corporate/workers/reset-password/', WorkerPasswordResetView.as_view(), name='corporate-workers-reset-password'),
     path('business/config/', BusinessConfigView.as_view(), name='business-config'),
+    path('business/categories/', BusinessCategoryListView.as_view(), name='business-categories'),
     path('tiers/', TierListView.as_view(), name='tier-list'),
     path('upgrade/', UpgradeView.as_view(), name='upgrade'),
     # JWT endpoints using HttpOnly cookies
