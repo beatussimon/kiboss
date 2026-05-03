@@ -40,15 +40,15 @@ class VerificationTier:
     ]
     
     # Tier thresholds
-    GOLD_THRESHOLD = 95.0  # Trust score threshold for gold
-    PREMIUM_THRESHOLD = 80.0  # Trust score threshold for premium
-    BASIC_THRESHOLD = 50.0  # Trust score threshold for basic
+    GOLD_THRESHOLD = Decimal('95.00')  # Trust score threshold for gold
+    PREMIUM_THRESHOLD = Decimal('80.00')  # Trust score threshold for premium
+    BASIC_THRESHOLD = Decimal('50.00')  # Trust score threshold for basic
     
     @classmethod
     def get_tier(cls, trust_score):
         """Get verification tier based on trust score."""
         # Note: BUSINESS tier is manually assigned via corporate verification
-        score = float(trust_score) if trust_score else 0
+        score = trust_score if trust_score else Decimal('0.00')
         if score >= cls.GOLD_THRESHOLD:
             return cls.GOLD
         elif score >= cls.PREMIUM_THRESHOLD:

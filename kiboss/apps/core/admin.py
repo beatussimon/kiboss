@@ -368,11 +368,10 @@ def register_all_models():
     admin_site.register(NotificationPreference, NotificationPreferenceAdmin)
     
     # Ratings App
-    from kiboss.apps.ratings.models import Rating, TrustDetails
-    from kiboss.apps.ratings.admin import RatingAdmin, TrustDetailsAdmin
+    from kiboss.apps.ratings.models import Rating
+    from kiboss.apps.ratings.admin import RatingAdmin
     
     admin_site.register(Rating, RatingAdmin)
-    admin_site.register(TrustDetails, TrustDetailsAdmin)
     
     # RBAC App
     from kiboss.apps.rbac.models import RolePermission, UserRole, AdminAction
