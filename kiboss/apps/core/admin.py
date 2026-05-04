@@ -321,19 +321,17 @@ def register_all_models():
     
     # Payments App
     from kiboss.apps.payments.models import (
-        Payment, Dispute, OfflinePaymentMethod, SubscriptionPayment,
+        Payment, Dispute, OfflinePaymentMethod,
         UserPaymentMethod, ManualPayment, ManualPaymentReceipt
     )
     from kiboss.apps.payments.admin import (
         PaymentAdmin, DisputeAdmin, OfflinePaymentMethodAdmin,
-        SubscriptionPaymentAdmin, UserPaymentMethodAdmin,
-        ManualPaymentAdmin, ManualPaymentReceiptAdmin
+        UserPaymentMethodAdmin, ManualPaymentAdmin, ManualPaymentReceiptAdmin
     )
     
     admin_site.register(Payment, PaymentAdmin)
     admin_site.register(Dispute, DisputeAdmin)
     admin_site.register(OfflinePaymentMethod, OfflinePaymentMethodAdmin)
-    admin_site.register(SubscriptionPayment, SubscriptionPaymentAdmin)
     admin_site.register(UserPaymentMethod, UserPaymentMethodAdmin)
     admin_site.register(ManualPayment, ManualPaymentAdmin)
     admin_site.register(ManualPaymentReceipt, ManualPaymentReceiptAdmin)
