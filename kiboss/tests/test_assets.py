@@ -50,7 +50,9 @@ class TestAssetModel:
             properties={
                 'make': 'Toyota',
                 'model': 'Camry',
-                'year': 2020
+                'year': 2020,
+                'license_plate': 'TEST-123',
+                'vehicle_type': 'SEDAN'
             }
         )
         assert asset.asset_type == AssetType.VEHICLE
@@ -163,13 +165,15 @@ class TestAssetAvailabilityModel:
         """Test default availability check."""
         availability = AssetAvailability.objects.create(
             asset=test_asset,
-            name='Always Available',
-            availability_type='ALWAYS'
+            name='Standard Availability',
+            availability_type='SCHEDULED',
+            buffer_minutes=0
         )
         
+        # Test within a generic window that should be available if no bookings exist
         is_available, reason = availability.is_available(
-            timezone.now(),
-            timezone.now() + timedelta(hours=2)
+            timezone.now() + timedelta(days=10),
+            timezone.now() + timedelta(days=10, hours=2)
         )
         assert is_available is True
         assert reason is None

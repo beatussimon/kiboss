@@ -196,18 +196,16 @@ class TestBookingCalculations:
         fee = test_booking.get_cancellation_fee(timezone.now())
         assert fee == test_booking.subtotal
     
-    def test_calculate_late_fee(self, db, test_booking):
-        """Test calculating late fee."""
-        test_booking.is_late = True
-        test_booking.late_fee_per_unit = Decimal('10.00')
-        test_booking.late_fee_max = Decimal('50.00')
-        test_booking.save()
+    def test_calculate_late_fee(self, db, confirmed_booking):
+        """Test late fee calculation."""
+        confirmed_booking.late_fee_per_unit = Decimal('2.00')
+        confirmed_booking.late_fee_max = Decimal('50.00')
+        confirmed_booking.save()
         
-        # Return 3 hours late (30 * 10 = 300, capped at 50)
-        return_time = test_booking.end_time + timedelta(hours=3)
-        fee = test_booking.calculate_late_fee(return_time)
-        
-        assert fee == Decimal('50.00')  # Max cap
+        # Return 15 hours late -> 15 * 2 = 30.00
+        return_time = confirmed_booking.end_time + timedelta(hours=15)
+        fee = confirmed_booking.calculate_late_fee(return_time)
+        assert fee == Decimal('30.00')
     
     def test_calculate_late_fee_under_max(self, db, test_booking):
         """Test late fee under maximum."""

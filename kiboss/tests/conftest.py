@@ -170,7 +170,9 @@ def test_asset_vehicle(db, test_user):
             'make': 'Toyota',
             'model': 'Camry',
             'year': 2020,
-            'mileage': 50000
+            'mileage': 50000,
+            'license_plate': 'TEST-123',
+            'vehicle_type': 'SEDAN'
         }
     )
     from kiboss.apps.assets.models import AssetCapacity
