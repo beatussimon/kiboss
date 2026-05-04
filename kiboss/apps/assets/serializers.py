@@ -3,7 +3,13 @@ Serializers for KIBOSS Asset API
 """
 
 from rest_framework import serializers
-from kiboss.apps.assets.models import Asset, AssetType, AssetPhoto, AssetDocument, AssetPricing, AssetAvailability, AssetCapacity, AssetTimeGranularity
+from kiboss.apps.assets.models import Asset, AssetType, AssetPhoto, AssetDocument, AssetPricing, AssetAvailability, AssetCapacity, AssetTimeGranularity, PromotedListing
+
+class PromotedListingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PromotedListing
+        fields = ['id', 'asset', 'promotion_type', 'starts_at', 'ends_at', 'is_active', 'payment_reference', 'amount_paid', 'created_at']
+        read_only_fields = ['id', 'created_at']
 
 
 class AssetPhotoSerializer(serializers.ModelSerializer):
@@ -90,12 +96,13 @@ class AssetSummarySerializer(serializers.ModelSerializer):
     
     is_verified = serializers.SerializerMethodField()
     photos = AssetPhotoSerializer(many=True, read_only=True)
+    is_promoted = serializers.BooleanField(read_only=True, default=False)
     
     class Meta:
         model = Asset
         fields = [
             'id', 'name', 'asset_type', 'city', 'country',
-            'average_rating', 'total_reviews', 'is_verified', 'photos'
+            'average_rating', 'total_reviews', 'is_verified', 'photos', 'is_promoted'
         ]
         read_only_fields = fields
     
@@ -115,6 +122,7 @@ class AssetListSerializer(serializers.ModelSerializer):
     owner_verification_badge = serializers.SerializerMethodField()
     photos = AssetPhotoSerializer(many=True, read_only=True)
     pricing_rules = AssetPricingSerializer(many=True, read_only=True)
+    is_promoted = serializers.BooleanField(read_only=True, default=False)
     
     class Meta:
         model = Asset
@@ -123,7 +131,7 @@ class AssetListSerializer(serializers.ModelSerializer):
             'owner', 'owner_email', 'owner_verification_badge',
             'city', 'state', 'country',
             'verification_status', 'verification_status_display', 'is_verified',
-            'is_active', 'is_listed',
+            'is_active', 'is_listed', 'is_promoted',
             'average_rating', 'total_reviews',
             'properties', 'photos', 'pricing_rules',
             'created_at', 'updated_at'
@@ -163,6 +171,7 @@ class AssetDetailSerializer(serializers.ModelSerializer):
         source='get_verification_status_display', read_only=True
     )
     is_verified = serializers.SerializerMethodField()
+    is_promoted = serializers.BooleanField(read_only=True, default=False)
     
     class Meta:
         model = Asset
@@ -174,7 +183,7 @@ class AssetDetailSerializer(serializers.ModelSerializer):
             'jurisdiction', 'timezone',
             'verification_status', 'verification_status_display', 'is_verified',
             'verification_notes', 'verified_at',
-            'is_active', 'is_listed',
+            'is_active', 'is_listed', 'is_promoted',
             'average_rating', 'total_reviews',
             'properties',
             'photos', 'pricing_rules', 'availability_rules',
@@ -248,6 +257,7 @@ class AssetSerializer(serializers.ModelSerializer):
     owner_email = serializers.EmailField(source='owner.email', read_only=True)
     is_verified = serializers.SerializerMethodField()
     pricing_rules = AssetPricingSerializer(many=True, required=False)
+    is_promoted = serializers.BooleanField(read_only=True, default=False)
     
     class Meta:
         model = Asset
@@ -258,12 +268,12 @@ class AssetSerializer(serializers.ModelSerializer):
             'latitude', 'longitude',
             'jurisdiction', 'timezone',
             'verification_status', 'verification_notes',
-            'is_active', 'is_listed', 'is_verified',
+            'is_active', 'is_listed', 'is_verified', 'is_promoted',
             'average_rating', 'total_reviews',
             'properties', 'pricing_rules',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'owner', 'owner_email', 'average_rating', 'total_reviews', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'owner', 'owner_email', 'average_rating', 'total_reviews', 'created_at', 'updated_at', 'is_promoted']
     
     def get_is_verified(self, obj):
         return obj.verification_status == 'VERIFIED'

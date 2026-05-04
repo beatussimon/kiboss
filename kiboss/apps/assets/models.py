@@ -760,3 +760,32 @@ class AssetLike(models.Model):
     
     def __str__(self):
         return f"{self.user.email} likes {self.asset.name}"
+
+
+PROMOTION_PRICES = {
+    'HOMEPAGE_FEATURED': {'7_days': 15000, '14_days': 25000, '30_days': 45000},
+    'SEARCH_BOOST': {'7_days': 8000, '14_days': 14000, '30_days': 24000},
+}
+
+class PromotedListing(models.Model):
+    class PromotionType(models.TextChoices):
+        HOMEPAGE_FEATURED = 'HOMEPAGE_FEATURED', 'Homepage Featured'
+        SEARCH_BOOST = 'SEARCH_BOOST', 'Search Result Boost'
+        CATEGORY_TOP = 'CATEGORY_TOP', 'Category Top Placement'
+    
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name='promotions')
+    promotion_type = models.CharField(max_length=30, choices=PromotionType.choices)
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField()
+    is_active = models.BooleanField(default=False)
+    payment_reference = models.CharField(max_length=100, blank=True)  # M-Pesa reference
+    amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        indexes = [models.Index(fields=['is_active', 'ends_at'])]
+    
+    def is_currently_active(self):
+        from django.utils import timezone
+        now = timezone.now()
+        return self.is_active and self.starts_at <= now <= self.ends_at

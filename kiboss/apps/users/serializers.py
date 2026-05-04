@@ -187,6 +187,7 @@ class UserSerializer(serializers.ModelSerializer):
     total_listings = serializers.SerializerMethodField()
     total_rides = serializers.SerializerMethodField()
     total_reviews = serializers.SerializerMethodField()
+    has_verified_vehicle = serializers.SerializerMethodField()
     
     class Meta:
         model = User
@@ -197,13 +198,14 @@ class UserSerializer(serializers.ModelSerializer):
             'account_tier', 'verification_tier', 'verification_badge', 'checkmark_data',
             'is_staff', 'is_superuser',
             'profile', 'corporate_profile', 'roles', 'permissions',
-            'followers_count', 'following_count', 'total_listings', 'total_rides', 'total_reviews'
+            'followers_count', 'following_count', 'total_listings', 'total_rides', 'total_reviews',
+            'has_verified_vehicle'
         ]
         read_only_fields = [
             'id', 'is_email_verified', 'is_phone_verified', 'is_identity_verified', 
             'trust_score', 'total_ratings_count', 'is_blocked', 
             'account_tier', 'verification_badge', 'roles', 'permissions', 'is_staff', 'is_superuser', 
-            'profile', 'corporate_profile'
+            'profile', 'corporate_profile', 'has_verified_vehicle'
         ]
     
     def get_verification_badge(self, obj):
@@ -247,6 +249,14 @@ class UserSerializer(serializers.ModelSerializer):
     def get_total_reviews(self, obj):
         from kiboss.apps.ratings.models import Rating
         return Rating.objects.filter(reviewee=obj, status='APPROVED').count()
+
+    def get_has_verified_vehicle(self, obj):
+        from kiboss.apps.assets.models import Asset, AssetType
+        return Asset.objects.filter(
+            owner=obj,
+            asset_type=AssetType.VEHICLE,
+            verification_status='VERIFIED'
+        ).exists()
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):

@@ -268,10 +268,20 @@ class AssetViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         from kiboss.apps.users.models import CorporateProfile
+        from kiboss.apps.assets.models import PromotedListing
         has_verified_corp = Exists(
             CorporateProfile.objects.filter(
                 user_id=OuterRef('owner_id'),
                 verification_status='VERIFIED'
+            )
+        )
+        
+        is_promoted_q = Exists(
+            PromotedListing.objects.filter(
+                asset=OuterRef('pk'),
+                is_active=True,
+                starts_at__lte=timezone.now(),
+                ends_at__gte=timezone.now()
             )
         )
         
@@ -288,8 +298,9 @@ class AssetViewSet(viewsets.ModelViewSet):
                 When(owner__account_tier='PLUS', then=Value(1.5)),
                 default=Value(1.0),
                 output_field=FloatField(),
-            )
-        ).order_by('-visibility_boost', '-average_rating', '-created_at')
+            ),
+            is_promoted=is_promoted_q
+        ).order_by('-is_promoted', '-visibility_boost', '-average_rating', '-created_at')
         
         # Filter by asset type
         asset_type = self.request.query_params.get('asset_type')
@@ -319,7 +330,7 @@ class AssetViewSet(viewsets.ModelViewSet):
         
         # Filter by active/listed
         if self.action == 'list' and owner_id != 'me':
-            queryset = queryset.filter(is_active=True, is_listed=True, verification_status=VerificationStatus.VERIFIED)
+            queryset = queryset.filter(is_active=True, is_listed=True).exclude(verification_status=VerificationStatus.REJECTED)
             
         if self.action == 'retrieve':
             from django.db.models import Q
@@ -623,3 +634,27 @@ class AssetAvailabilityViewSet(viewsets.ModelViewSet):
         if is_active is not None:
             queryset = queryset.filter(is_active=is_active.lower() == 'true')
         return queryset
+
+class PromotedListingViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing promoted listings."""
+    from kiboss.apps.assets.models import PromotedListing
+    from kiboss.apps.assets.serializers import PromotedListingSerializer
+    
+    queryset = PromotedListing.objects.all()
+    serializer_class = PromotedListingSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+    def get_queryset(self):
+        from kiboss.apps.assets.models import PromotedListing
+        queryset = PromotedListing.objects.all()
+        promo_type = self.request.query_params.get('type')
+        if promo_type:
+            queryset = queryset.filter(promotion_type=promo_type)
+        return queryset
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    def activate(self, request, pk=None):
+        promotion = self.get_object()
+        promotion.is_active = True
+        promotion.save()
+        return Response({'status': 'activated'})
