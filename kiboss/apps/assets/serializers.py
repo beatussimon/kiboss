@@ -96,7 +96,7 @@ class AssetSummarySerializer(serializers.ModelSerializer):
     
     is_verified = serializers.SerializerMethodField()
     photos = AssetPhotoSerializer(many=True, read_only=True)
-    is_promoted = serializers.BooleanField(read_only=True, default=False)
+    is_promoted = serializers.SerializerMethodField()
     
     class Meta:
         model = Asset
@@ -108,6 +108,17 @@ class AssetSummarySerializer(serializers.ModelSerializer):
     
     def get_is_verified(self, obj):
         return obj.verification_status == 'VERIFIED'
+
+    def get_is_promoted(self, obj):
+        from django.utils import timezone
+        from kiboss.apps.assets.models import PromotedListing
+        now = timezone.now()
+        return PromotedListing.objects.filter(
+            asset=obj,
+            is_active=True,
+            starts_at__lte=now,
+            ends_at__gte=now
+        ).exists()
 
 
 class AssetListSerializer(serializers.ModelSerializer):
@@ -122,7 +133,7 @@ class AssetListSerializer(serializers.ModelSerializer):
     owner_verification_badge = serializers.SerializerMethodField()
     photos = AssetPhotoSerializer(many=True, read_only=True)
     pricing_rules = AssetPricingSerializer(many=True, read_only=True)
-    is_promoted = serializers.BooleanField(read_only=True, default=False)
+    is_promoted = serializers.SerializerMethodField()
     
     class Meta:
         model = Asset
@@ -140,6 +151,17 @@ class AssetListSerializer(serializers.ModelSerializer):
     
     def get_is_verified(self, obj):
         return obj.verification_status == 'VERIFIED'
+        
+    def get_is_promoted(self, obj):
+        from django.utils import timezone
+        from kiboss.apps.assets.models import PromotedListing
+        now = timezone.now()
+        return PromotedListing.objects.filter(
+            asset=obj,
+            is_active=True,
+            starts_at__lte=now,
+            ends_at__gte=now
+        ).exists()
         
     def get_owner(self, obj):
         from kiboss.apps.users.serializers import PublicUserSerializer
@@ -171,7 +193,7 @@ class AssetDetailSerializer(serializers.ModelSerializer):
         source='get_verification_status_display', read_only=True
     )
     is_verified = serializers.SerializerMethodField()
-    is_promoted = serializers.BooleanField(read_only=True, default=False)
+    is_promoted = serializers.SerializerMethodField()
     
     class Meta:
         model = Asset
@@ -194,6 +216,17 @@ class AssetDetailSerializer(serializers.ModelSerializer):
     
     def get_is_verified(self, obj):
         return obj.verification_status == 'VERIFIED'
+        
+    def get_is_promoted(self, obj):
+        from django.utils import timezone
+        from kiboss.apps.assets.models import PromotedListing
+        now = timezone.now()
+        return PromotedListing.objects.filter(
+            asset=obj,
+            is_active=True,
+            starts_at__lte=now,
+            ends_at__gte=now
+        ).exists()
         
     def get_owner(self, obj):
         from kiboss.apps.users.serializers import PublicUserSerializer
@@ -257,7 +290,7 @@ class AssetSerializer(serializers.ModelSerializer):
     owner_email = serializers.EmailField(source='owner.email', read_only=True)
     is_verified = serializers.SerializerMethodField()
     pricing_rules = AssetPricingSerializer(many=True, required=False)
-    is_promoted = serializers.BooleanField(read_only=True, default=False)
+    is_promoted = serializers.SerializerMethodField()
     
     class Meta:
         model = Asset
@@ -273,10 +306,21 @@ class AssetSerializer(serializers.ModelSerializer):
             'properties', 'pricing_rules',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'owner', 'owner_email', 'average_rating', 'total_reviews', 'created_at', 'updated_at', 'is_promoted']
+        read_only_fields = ['id', 'owner', 'owner_email', 'average_rating', 'total_reviews', 'created_at', 'updated_at']
     
     def get_is_verified(self, obj):
         return obj.verification_status == 'VERIFIED'
+    
+    def get_is_promoted(self, obj):
+        from django.utils import timezone
+        from kiboss.apps.assets.models import PromotedListing
+        now = timezone.now()
+        return PromotedListing.objects.filter(
+            asset=obj,
+            is_active=True,
+            starts_at__lte=now,
+            ends_at__gte=now
+        ).exists()
 
     def create(self, validated_data):
         pricing_rules_data = validated_data.pop('pricing_rules', [])

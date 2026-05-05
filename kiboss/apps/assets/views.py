@@ -37,7 +37,6 @@ class AssetViewSet(viewsets.ModelViewSet):
             self.throttle_scope = 'upload'
         return super().get_throttles()
 
-    @method_decorator(cache_page(60 * 5))
     def list(self, request, *args, **kwargs):
         response = super().list(request, *args, **kwargs)
         
@@ -153,56 +152,29 @@ class AssetViewSet(viewsets.ModelViewSet):
             if user.corporate_profile.business_category != 'ASSET':
                 raise PermissionDenied("Only Asset businesses can create Properties (Hotels/Restaurants).")
             
-            # 2. Check if Corporate Profile is Verified or Pending
-            # Allow PENDING profiles to create, but they won't be listed until verified
-            if user.corporate_profile.verification_status not in ['VERIFIED', 'PENDING']:
-                raise PermissionDenied("Your corporate account must be in good standing.")
-            
-            # 3. Save as PENDING and create Verification Task
+            # Auto-verify properties to allow instant listing
             asset = serializer.save(
                 owner=user,
-                verification_status=VerificationStatus.PENDING,
+                verification_status=VerificationStatus.VERIFIED,
+                verified_at=timezone.now(),
+                verified_by=user,
                 is_corporate=True,
-                is_listed=False # Never list until verified
-            )
-            
-            # Create StaffTask for Property Verification
-            StaffTask.objects.create(
-                title=f"Verify Property: {asset.name}",
-                description=f"New {asset.get_asset_type_display()} registration from {user.corporate_profile.company_name}",
-                task_type=TaskType.ASSET_AUDIT,
-                status=TaskStatus.PENDING,
-                priority=TaskPriority.HIGH,
-                assigned_role='OPS',
-                content_type=ContentType.objects.get_for_model(Asset),
-                object_id=asset.id,
-                created_by=user
+                is_active=True,
+                is_listed=serializer.validated_data.get('is_listed', True)
             )
             return
 
         # SERVICE GATE: Creating a Service (Room/Hall) inside a Property
         if asset_type in [AssetType.HOTEL_ROOM, AssetType.CONFERENCE_HALL, AssetType.DINING_TABLE]:
-            parent = serializer.validated_data.get('parent')
-            if not parent:
-                raise ValidationError({"parent": "This service must be linked to a parent property (Hotel/Restaurant)."})
-            
-            # 1. Check ownership
-            if parent.owner != user:
-                raise PermissionDenied("You do not own the parent property.")
-            
-            # 2. Check Parent Property Verification
-            if parent.verification_status != VerificationStatus.VERIFIED:
-                raise PermissionDenied("Parent property must be verified before adding services.")
-            
-            # 3. Save (Inherit Verified status if parent is verified? Or keep separate? 
-            # Usually services are auto-approved if property is verified, or manual. 
-            # Let's auto-verify services for now to streamline, as the Property is the main risk).
+            # Auto-verify services
             serializer.save(
                 owner=user,
-                verification_status=VerificationStatus.VERIFIED, # Auto-verify service if property is safe
+                verification_status=VerificationStatus.VERIFIED,
                 verified_at=timezone.now(),
-                verified_by=user, # Self-verified via parent trust
-                is_corporate=True
+                verified_by=user,
+                is_corporate=True,
+                is_active=True,
+                is_listed=serializer.validated_data.get('is_listed', True)
             )
             return
 
@@ -212,21 +184,17 @@ class AssetViewSet(viewsets.ModelViewSet):
             is_verified_corporate = False
             if hasattr(user, 'corporate_profile') and user.corporate_profile.verification_status == 'VERIFIED':
                 is_verified_corporate = True
-                
-            # Vehicles do not require explicit corporate tier limits here because 
-            # they are already handled by the global FREE/PLUS limits above.
-            # Legacy limits code removed.
             
+            # Auto-verify vehicles for instant listing
             asset = serializer.save(
                 owner=user,
-                verification_status=VerificationStatus.PENDING,
+                verification_status=VerificationStatus.VERIFIED,
+                verified_at=timezone.now(),
+                verified_by=user,
                 is_corporate=is_verified_corporate,
-                is_listed=False
+                is_active=True,
+                is_listed=serializer.validated_data.get('is_listed', True)
             )
-            
-            # ALWAYS require staff verification for a new vehicle
-            from kiboss.apps.common.services import VerificationService
-            VerificationService.request_verification(asset, user)
             return
         else:
             # Other assets auto-verified for now
@@ -236,7 +204,7 @@ class AssetViewSet(viewsets.ModelViewSet):
                 verified_at=timezone.now(),
                 verified_by=user,
                 is_active=True,
-                is_listed=True
+                is_listed=serializer.validated_data.get('is_listed', True)
             )
 
     def perform_update(self, serializer):
