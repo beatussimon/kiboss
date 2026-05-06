@@ -11,7 +11,7 @@ class PromotedListingSerializer(serializers.ModelSerializer):
     class Meta:
         model = PromotedListing
         fields = ['id', 'asset', 'asset_details', 'promotion_type', 'starts_at', 'ends_at', 'is_active', 'payment_reference', 'amount_paid', 'created_at']
-        read_only_fields = ['id', 'created_at', 'asset_details']
+        read_only_fields = ['id', 'created_at', 'asset_details', 'is_active']
 
     def get_asset_details(self, obj):
         from kiboss.apps.assets.serializers import AssetListSerializer

@@ -21,20 +21,35 @@ class FeedbackViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         feedback = serializer.save(user=self.request.user)
         
-        # Auto-create Support Ticket StaffTask
+        # Auto-create Support Ticket StaffTask and Messaging Thread
         from kiboss.apps.tasks.models import StaffTask, TaskType, TaskStatus, TaskPriority
+        from kiboss.apps.messaging.models import Thread, ThreadType, Message
         from django.contrib.contenttypes.models import ContentType
-        from .models import Feedback
         
+        # 1. Create a Thread for this support request
+        thread = Thread.objects.create(
+            thread_type=ThreadType.SUPPORT,
+            subject=f"Support: {feedback.subject}"
+        )
+        thread.participants.add(feedback.user)
+        
+        # 2. Add the user's initial message
+        Message.objects.create(
+            thread=thread,
+            sender=feedback.user,
+            content=feedback.message
+        )
+        
+        # 3. Create the Staff Task pointing to the Thread
         StaffTask.objects.create(
-            title=f"Feedback: {feedback.subject}",
+            title=f"Support: {feedback.subject}",
             description=feedback.message[:200] + ("..." if len(feedback.message) > 200 else ""),
             task_type=TaskType.SUPPORT_TICKET,
             status=TaskStatus.PENDING,
             priority=TaskPriority.MEDIUM,
             assigned_role='SUPPORT',
-            content_type=ContentType.objects.get_for_model(Feedback),
-            object_id=feedback.id,
+            content_type=ContentType.objects.get_for_model(Thread),
+            object_id=thread.id,
             created_by=feedback.user
         )
 

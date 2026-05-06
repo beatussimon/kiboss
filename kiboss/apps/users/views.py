@@ -416,9 +416,10 @@ class RegisterView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         if User.objects.filter(email=email).exists():
+            # Return the same success-looking response to prevent email enumeration
             return Response(
-                {'error': 'A user with this email already exists'},
-                status=status.HTTP_400_BAD_REQUEST
+                {'message': 'If this email is not already registered, a verification email has been sent.'},
+                status=status.HTTP_201_CREATED
             )
 
         user = User.objects.create_user(

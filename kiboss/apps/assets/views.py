@@ -210,7 +210,7 @@ class AssetViewSet(viewsets.ModelViewSet):
                 verified_by=user if is_auto_verify else None,
                 is_corporate=is_verified_corporate,
                 is_active=True,
-                is_listed=serializer.validated_data.get('is_listed', True) if is_auto_verify else False
+                is_listed=serializer.validated_data.get('is_listed', True)
             )
             
             if not is_auto_verify:
@@ -232,7 +232,7 @@ class AssetViewSet(viewsets.ModelViewSet):
             serializer.save(
                 verification_status=VerificationStatus.PENDING,
                 is_active=True,
-                is_listed=False,  # Cannot be listed until verified
+                is_listed=serializer.validated_data.get('is_listed', True)
             )
             # Create a verification task for staff
             from kiboss.apps.tasks.models import StaffTask
@@ -602,11 +602,6 @@ class AssetViewSet(viewsets.ModelViewSet):
         asset = self.get_object()
         if asset.owner != request.user and not request.user.is_superuser:
             raise PermissionDenied('Not authorized')
-        if not request.user.is_superuser and asset.verification_status != 'VERIFIED':
-            return Response(
-                {'error': 'Asset must be verified before listing'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
         asset.is_listed = not asset.is_listed
         asset.save(update_fields=['is_listed', 'updated_at'])
         return Response({
@@ -692,3 +687,25 @@ class PromotedListingViewSet(viewsets.ModelViewSet):
         promotion.is_active = True
         promotion.save()
         return Response({'status': 'activated'})
+
+    def perform_create(self, serializer):
+        from django.contrib.contenttypes.models import ContentType
+        from kiboss.apps.tasks.models import StaffTask, TaskType, TaskPriority
+        from kiboss.apps.assets.models import PromotedListing
+
+        promotion = serializer.save(is_active=False)  # force inactive until staff approve
+
+        StaffTask.objects.create(
+            title=f"Promotion Request: {promotion.asset.name}",
+            description=(
+                f"User {self.request.user.email} submitted a promotion request "
+                f"for '{promotion.asset.name}'. Type: {promotion.promotion_type}. "
+                f"Amount paid: {promotion.amount_paid}. Ref: {promotion.payment_reference}."
+            ),
+            task_type=TaskType.CUSTOM_TASK,
+            priority=TaskPriority.MEDIUM,
+            assigned_role='OPS',
+            content_type=ContentType.objects.get_for_model(PromotedListing),
+            object_id=promotion.id,
+            created_by=self.request.user,
+        )

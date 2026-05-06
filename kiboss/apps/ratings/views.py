@@ -45,6 +45,11 @@ class RatingViewSet(viewsets.ModelViewSet):
         if user_id:
             queryset = queryset.filter(reviewer_id=user_id) | queryset.filter(reviewee_id=user_id)
         
+        # NEW: filter by asset
+        asset_id = self.request.query_params.get('asset')
+        if asset_id:
+            queryset = queryset.filter(booking__asset_id=asset_id)
+        
         return queryset
     
     def create(self, request, *args, **kwargs):

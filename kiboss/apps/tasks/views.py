@@ -266,6 +266,20 @@ class StaffTaskViewSet(viewsets.ModelViewSet):
                         if latest_sub:
                             latest_sub.status = 'ACTIVE'
                             latest_sub.save()
+
+                # Handle subscription cancellation approval
+                elif task.task_type == TaskType.SUBSCRIPTION_VERIFICATION:
+                    profile = task.content_object
+                    if profile:
+                        from django.utils import timezone as tz
+                        cancelled = profile.subscriptions.filter(
+                            status='PENDING_CANCELLATION'
+                        )
+                        cancelled.update(status='CANCELLED', cancelled_at=tz.now())
+                        # Downgrade user tier
+                        user = profile.user
+                        user.account_tier = 'FREE'
+                        user.save(update_fields=['account_tier'])
                         
             elif action_type == 'REJECT':
                 task.status = TaskStatus.REJECTED

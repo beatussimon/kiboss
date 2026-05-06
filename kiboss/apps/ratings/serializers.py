@@ -9,11 +9,14 @@ class RatingSerializer(serializers.ModelSerializer):
     """Serializer for Rating model."""
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     category_display = serializers.CharField(source='get_category_display', read_only=True)
+    reviewer_name = serializers.SerializerMethodField()
+    reviewer_avatar = serializers.SerializerMethodField()
     
     class Meta:
         model = Rating
         fields = [
             'id', 'booking', 'ride', 'reviewer', 'reviewee',
+            'reviewer_name', 'reviewer_avatar',
             'category', 'category_display',
             'overall_rating', 'reliability_rating', 'communication_rating',
             'cleanliness_rating', 'timeliness_rating',
@@ -24,6 +27,18 @@ class RatingSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_reviewer_name(self, obj):
+        if obj.reviewer:
+            return obj.reviewer.first_name or 'Anonymous'
+        return 'Anonymous'
+
+    def get_reviewer_avatar(self, obj):
+        if obj.reviewer and hasattr(obj.reviewer, 'profile') and obj.reviewer.profile.avatar:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.reviewer.profile.avatar.url)
+        return None
 
 
 class RatingCreateSerializer(serializers.Serializer):
