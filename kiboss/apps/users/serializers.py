@@ -373,12 +373,13 @@ class PublicUserSerializer(serializers.ModelSerializer):
         from kiboss.apps.assets.models import Asset
         from kiboss.apps.rides.models import Ride
         from kiboss.apps.ratings.models import Rating
+        from django.utils import timezone as tz
         
         data['follower_count'] = Follow.objects.filter(following=instance).count()
         data['following_count'] = Follow.objects.filter(follower=instance).count()
         
-        # Listings
-        assets = Asset.objects.filter(owner=instance, is_active=True)[:10]
+        # Listings — include verification_status and photo_url
+        assets = Asset.objects.filter(owner=instance, is_active=True).prefetch_related('photos', 'pricing_rules')[:12]
         data['listings'] = []
         for asset in assets:
             price = 0
@@ -395,31 +396,49 @@ class PublicUserSerializer(serializers.ModelSerializer):
                 'title': asset.name,
                 'type': asset.get_asset_type_display(),
                 'price': price,
-                'photo_url': photo_url
+                'photo_url': photo_url,
+                'verification_status': asset.verification_status,
+                'city': asset.city or '',
             })
             
-        # Rides
-        rides = Ride.objects.filter(driver=instance, status='SCHEDULED')[:10]
+        # Rides — return ALL non-cancelled rides with status and is_expired
+        rides = Ride.objects.filter(driver=instance).exclude(status='CANCELLED').order_by('-departure_time')[:12]
         data['rides'] = []
+        now = tz.now()
         for ride in rides:
+            is_expired = ride.status in ('COMPLETED',) or (ride.departure_time and ride.departure_time < now and ride.status not in ('IN_TRANSIT', 'DEPARTED'))
             data['rides'].append({
                 'id': str(ride.id),
                 'origin': ride.origin if ride.origin else 'Unknown',
                 'destination': ride.destination if ride.destination else 'Unknown',
                 'departure_time': ride.departure_time.isoformat() if ride.departure_time else None,
-                'price': str(ride.seat_price) if ride.seat_price else '0'
+                'price': str(ride.seat_price) if ride.seat_price else '0',
+                'status': ride.status,
+                'is_expired': is_expired,
             })
             
-        # Reviews
-        reviews = Rating.objects.filter(reviewee=instance, status='APPROVED')[:10]
+        # Reviews — include reviewer avatar, created_at, and source label
+        reviews = Rating.objects.filter(reviewee=instance, status='APPROVED').select_related('reviewer', 'reviewer__profile').order_by('-created_at')[:12]
         data['reviews'] = []
         for review in reviews:
+            reviewer_avatar = None
+            if review.reviewer and hasattr(review.reviewer, 'profile') and review.reviewer.profile:
+                if review.reviewer.profile.avatar and hasattr(review.reviewer.profile.avatar, 'url'):
+                    reviewer_avatar = request.build_absolute_uri(review.reviewer.profile.avatar.url) if request else review.reviewer.profile.avatar.url
+            
+            source_label = 'Booking'
+            if review.category in ('PASSENGER_TO_DRIVER', 'DRIVER_TO_PASSENGER'):
+                source_label = 'Ride'
+            
             data['reviews'].append({
                 'id': str(review.id),
                 'rating': review.overall_rating,
                 'comment': review.comment,
+                'created_at': review.created_at.isoformat() if review.created_at else None,
+                'source_label': source_label,
                 'reviewer': {
-                    'first_name': review.reviewer.first_name if review.reviewer else 'Anonymous'
+                    'first_name': review.reviewer.first_name if review.reviewer else 'Anonymous',
+                    'avatar': reviewer_avatar,
                 }
             })
             
@@ -429,6 +448,21 @@ class PublicUserSerializer(serializers.ModelSerializer):
         data['total_listings'] = Asset.objects.filter(owner=instance, is_active=True).count()
         data['total_rides'] = Ride.objects.filter(driver=instance).count()
         data['total_reviews'] = data['review_count']
+        
+        # Trust badges
+        data['trust_badges'] = instance.trust_badges if hasattr(instance, 'trust_badges') else []
+        
+        # Corporate profile
+        if hasattr(instance, 'corporate_profile'):
+            cp = instance.corporate_profile
+            data['corporate_profile'] = {
+                'company_name': cp.company_name,
+                'registration_number': cp.registration_number,
+                'verification_status': cp.verification_status,
+                'business_category': cp.business_category,
+            }
+        else:
+            data['corporate_profile'] = None
         
         # Check if following
         request = self.context.get('request')
@@ -442,5 +476,6 @@ class PublicUserSerializer(serializers.ModelSerializer):
             data['is_following'] = False
             
         data['username'] = instance.email.split('@')[0] if instance.email else ''
+        data['email'] = instance.email
         
         return data

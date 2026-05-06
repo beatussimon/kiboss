@@ -267,14 +267,20 @@ class OfflinePaymentMethodViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        queryset = OfflinePaymentMethod.objects.all().order_by('-created_at')
+        
+        system_only = self.request.query_params.get('system_only', '').lower() == 'true'
+        if system_only:
+            return queryset.filter(is_system_wide=True, is_active=True)
+            
         if user.is_staff or user.is_superuser:
-            return OfflinePaymentMethod.objects.all().order_by('-created_at')
+            return queryset
         
         # Regular users see system-wide active methods AND their own methods
         from django.db.models import Q
-        return OfflinePaymentMethod.objects.filter(
+        return queryset.filter(
             Q(is_system_wide=True, is_active=True) | Q(owner=user)
-        ).order_by('-created_at')
+        )
 
     def perform_create(self, serializer):
         # A regular user creating a method is automatically the owner

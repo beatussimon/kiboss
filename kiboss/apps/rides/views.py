@@ -88,9 +88,12 @@ class VehicleRegistrationViewSet(viewsets.ModelViewSet):
                 is_active=True
             )
             
-            # Update historical vehicle count (Strict constraint requirement)
-            request.user.historical_vehicles_created += 1
-            request.user.save(update_fields=['historical_vehicles_created'])
+            # Update historical vehicle count atomically (prevents race condition on double-click)
+            from django.db.models import F
+            type(request.user).objects.filter(pk=request.user.pk).update(
+                historical_vehicles_created=F('historical_vehicles_created') + 1
+            )
+            request.user.refresh_from_db(fields=['historical_vehicles_created'])
             
             # 2. Handle documents
             # Support multiple files with 'documents' key

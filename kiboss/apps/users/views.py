@@ -909,7 +909,7 @@ class CookieTokenRefreshView(TokenRefreshView):
         return response
 
 class LogoutView(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     def post(self, request):
         response = Response({'detail': 'Successfully logged out.'}, status=status.HTTP_200_OK)
         response.delete_cookie('access_token', samesite='Lax')

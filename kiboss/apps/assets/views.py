@@ -126,8 +126,17 @@ class AssetViewSet(viewsets.ModelViewSet):
                     if vehicle_count >= 2:
                         raise PermissionDenied("Your Plus plan allows a maximum of 2 active vehicles.")
         
+        # Check if user has a verified corporate profile safely
+        is_verified_corporate = False
+        try:
+            corp = getattr(user, 'corporate_profile', None)
+            if corp and corp.verification_status == 'VERIFIED':
+                is_verified_corporate = True
+        except Exception:
+            pass
+
         # CORPORATE GATE: Enforce Asset Business Profile Restrictions
-        if hasattr(user, 'corporate_profile') and user.corporate_profile.verification_status == 'VERIFIED' and user.account_tier == 'BUSINESS':
+        if is_verified_corporate and user.account_tier == 'BUSINESS':
             if user.corporate_profile.business_category == 'ASSET':
                 # Corporate Asset accounts should ideally list corporate properties.
                 # But they may have 'personal' items too. Ensure they don't abuse the unlimited 'BUSINESS' quota for personal junk.
@@ -143,20 +152,35 @@ class AssetViewSet(viewsets.ModelViewSet):
         # CORPORATE GATE: Creating a Property (Hotel/Restaurant)
         if asset_type in [AssetType.HOTEL, AssetType.RESTAURANT]:
             # 1. Check if user has a Corporate Profile
-            if not hasattr(user, 'corporate_profile'):
+            try:
+                corp = getattr(user, 'corporate_profile', None)
+                if not corp:
+                    raise PermissionDenied("Corporate verification required. Please register as a business first.")
+                if corp.business_category != 'ASSET':
+                    raise PermissionDenied("Only Asset businesses can create Properties (Hotels/Restaurants).")
+            except PermissionDenied:
+                raise
+            except Exception:
                 raise PermissionDenied("Corporate verification required. Please register as a business first.")
-                
-            if user.corporate_profile.business_category != 'ASSET':
-                raise PermissionDenied("Only Asset businesses can create Properties (Hotels/Restaurants).")
             
-            # Auto-verify properties to allow instant listing
+            # Corporate properties require staff verification before listing
             asset = serializer.save(
-                verification_status=VerificationStatus.VERIFIED,
-                verified_at=timezone.now(),
-                verified_by=user,
+                verification_status=VerificationStatus.PENDING,
                 is_corporate=True,
                 is_active=True,
-                is_listed=serializer.validated_data.get('is_listed', True)
+                is_listed=False,  # Cannot be listed until verified by staff
+            )
+            # Create a high-priority verification task for staff
+            from kiboss.apps.tasks.models import StaffTask
+            from django.contrib.contenttypes.models import ContentType
+            StaffTask.objects.create(
+                title=f'Verify corporate property: {asset.name}',
+                description=f'New {asset.get_asset_type_display()} from verified business {user.email}. Requires staff review before listing.',
+                task_type='CORPORATE_ASSET_VERIFICATION',
+                priority='HIGH',
+                assigned_role='VERIFIER',
+                content_type=ContentType.objects.get_for_model(asset),
+                object_id=asset.id,
             )
             return
 
@@ -175,10 +199,7 @@ class AssetViewSet(viewsets.ModelViewSet):
 
         # EXISTING LOGIC: Vehicles and other assets
         if asset_type == AssetType.VEHICLE:
-            # Check if user has a verified corporate profile
-            is_verified_corporate = False
-            if hasattr(user, 'corporate_profile') and user.corporate_profile.verification_status == 'VERIFIED':
-                is_verified_corporate = True
+            # Check if user has a verified corporate profile (already computed above)
             
             # Only auto-verify for corporate or staff
             is_auto_verify = is_verified_corporate or user.is_staff or user.is_superuser
@@ -573,6 +594,24 @@ class AssetViewSet(viewsets.ModelViewSet):
             'success': True,
             'message': f'Successfully applied {discount_percent}% discount to {updated_count} active pricing rules.',
             'updated_count': updated_count
+        })
+
+    @action(detail=True, methods=['post'], url_path='toggle_listing')
+    def toggle_listing(self, request, pk=None):
+        """Toggle the is_listed status of an asset. Enforces ownership and verification."""
+        asset = self.get_object()
+        if asset.owner != request.user and not request.user.is_superuser:
+            raise PermissionDenied('Not authorized')
+        if not request.user.is_superuser and asset.verification_status != 'VERIFIED':
+            return Response(
+                {'error': 'Asset must be verified before listing'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        asset.is_listed = not asset.is_listed
+        asset.save(update_fields=['is_listed', 'updated_at'])
+        return Response({
+            'is_listed': asset.is_listed,
+            'message': f'Asset {"listed" if asset.is_listed else "unlisted"} successfully'
         })
 
 

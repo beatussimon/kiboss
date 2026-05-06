@@ -314,7 +314,7 @@ class AssetSerializer(serializers.ModelSerializer):
             'properties', 'pricing_rules',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'owner_email', 'owner_detail', 'average_rating', 'total_reviews', 'created_at', 'updated_at', 'verification_status', 'verification_notes', 'verified_at', 'verified_by', 'is_active', 'is_corporate']
+        read_only_fields = ['id', 'owner_email', 'owner_detail', 'average_rating', 'total_reviews', 'created_at', 'updated_at', 'verification_status', 'verification_notes', 'verified_at', 'verified_by', 'is_active', 'is_corporate', 'is_listed', 'is_verified', 'is_promoted']
     
     def get_owner_detail(self, obj):
         from kiboss.apps.users.serializers import PublicUserSerializer
