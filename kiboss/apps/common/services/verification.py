@@ -31,6 +31,14 @@ class VerificationService:
             entity.save()
 
             if entity.asset_type == AssetType.VEHICLE:
+                # NEW CHECK: Enforce documents at application time
+                existing_docs = entity.documents.values_list('document_type', flat=True)
+                required_docs = ['REGISTRATION', 'INSURANCE', 'OWNERSHIP']
+                missing = [doc for doc in required_docs if doc not in existing_docs]
+                if missing:
+                    from rest_framework.exceptions import ValidationError
+                    raise ValidationError(f"Cannot submit vehicle for verification. Missing required documents: {', '.join(missing)}")
+                
                 task_type = TaskType.VEHICLE_VERIFICATION
                 assigned_role = 'CAR_VERIFIER'
                 title = f"Verify Vehicle: {entity.name}"
@@ -48,6 +56,11 @@ class VerificationService:
                 description = f"Asset verification request from {user.email}. {notes}"
 
         elif isinstance(entity, CorporateProfile):
+            # NEW CHECK: Enforce documents at application time
+            if not entity.verification_documents or len(entity.verification_documents) == 0:
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError("Cannot submit business profile for verification. Missing business registration documents.")
+                
             entity.verification_status = 'PENDING'
             entity.save()
             
@@ -98,6 +111,9 @@ class VerificationService:
         
         entity = task.content_object
         
+        if not entity or task.task_type == TaskType.CUSTOM_TASK:
+            return
+            
         if action == 'APPROVE':
             if isinstance(entity, Asset):
                 entity.verification_status = VerificationStatus.VERIFIED

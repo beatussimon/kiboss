@@ -14,7 +14,7 @@ class FeedbackViewSet(viewsets.ModelViewSet):
         """
         Users see their own feedback, staff see all.
         """
-        if self.request.user.is_staff:
+        if self.request.user.is_staff or self.request.user.is_superuser:
             return Feedback.objects.all()
         return Feedback.objects.filter(user=self.request.user)
 

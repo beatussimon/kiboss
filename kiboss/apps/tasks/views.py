@@ -221,88 +221,119 @@ class StaffTaskViewSet(viewsets.ModelViewSet):
         action_type = serializer.validated_data['action']
         notes = serializer.validated_data.get('notes', '')
         
-        # Prevent self-approval
-        if task.created_by == request.user or (task.content_type.model == 'corporateprofile' and hasattr(task.content_object, 'user') and task.content_object.user == request.user):
-            if action_type in ['APPROVE', 'COMPLETED', 'SUBMIT_COMPLETION']:
-                return Response(
-                    {'error': 'You cannot approve or complete your own verification tasks.'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-
-        # Verify the user has the role required for this task
+        # Prevent self-approval on verification-critical tasks (Superusers bypass this)
         if not request.user.is_superuser:
+            if task.created_by == request.user or (task.content_type.model == 'corporateprofile' and hasattr(task.content_object, 'user') and task.content_object.user == request.user):
+                # Only block verification tasks. Custom tasks and support tickets can be self-processed.
+                verification_types = [
+                    TaskType.VEHICLE_VERIFICATION, TaskType.IDENTITY_VERIFICATION,
+                    TaskType.CORPORATE_RIDE_VERIFICATION, TaskType.CORPORATE_ASSET_VERIFICATION,
+                    TaskType.ASSET_VERIFICATION, TaskType.ASSET_AUDIT, TaskType.SUBSCRIPTION_VERIFICATION
+                ]
+                if task.task_type in verification_types and action_type in ['APPROVE', 'COMPLETED', 'SUBMIT_COMPLETION']:
+                    return Response(
+                        {'error': 'You cannot approve or complete your own verification tasks.'},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+
+            # Verify the user has the role required for this task, OR is specifically assigned to it
             role_required = task.assigned_role
-            if role_required and not UserRole.objects.filter(user=request.user, role=role_required).exists():
-                return Response(
-                    {'error': f'Only users with the {role_required} role can process this task.'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
+            if role_required and task.assigned_to != request.user:
+                has_role = UserRole.objects.filter(user=request.user, role=role_required).exists()
+                
+                # Special handling for GENERAL verifiers (align with get_queryset)
+                if not has_role and role_required == 'VERIFIER':
+                    from kiboss.apps.rbac.models import Permission, RolePermission
+                    user_perms = RolePermission.objects.filter(
+                        role__in=UserRole.objects.filter(user=request.user).values_list('role', flat=True)
+                    ).values_list('permission', flat=True)
+                    if any(p in user_perms for p in [Permission.USER_VERIFY, Permission.ASSET_VERIFY]):
+                        has_role = True
+                
+                if not has_role:
+                    return Response(
+                        {'error': f'Only users with the {role_required} role can process this task.'},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
 
-        with transaction.atomic():
-            task = StaffTask.objects.select_for_update().get(pk=task.pk)
-            
-            if task.status in [TaskStatus.COMPLETED, TaskStatus.REJECTED, TaskStatus.CHANGES_REQUESTED]:
-                return Response(
-                    {'error': 'Task has already been processed.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+        try:
+            with transaction.atomic():
+                task = StaffTask.objects.select_for_update().get(pk=task.pk)
                 
-            # Update the task status
-            task.reviewer_notes = notes
-            task.assigned_to = request.user
-            
-            from kiboss.apps.common.services import VerificationService
-            VerificationService.process_verification(task, action_type, request.user, notes)
-            
-            if action_type == 'APPROVE':
-                task.status = TaskStatus.COMPLETED
-                task.completion_date = timezone.now()
+                if task.status in [TaskStatus.COMPLETED, TaskStatus.REJECTED]:
+                    return Response(
+                        {'error': 'Task has already been finalized.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                    
+                # Update the task status
+                task.reviewer_notes = notes
+                task.assigned_to = request.user
                 
-                # Activate latest pending subscription if it's a corporate verification
-                if task.task_type in [TaskType.CORPORATE_RIDE_VERIFICATION, TaskType.CORPORATE_ASSET_VERIFICATION]:
-                    profile = task.content_object
-                    if profile:
-                        latest_sub = profile.subscriptions.filter(status='PENDING').first()
-                        if latest_sub:
-                            latest_sub.status = 'ACTIVE'
-                            latest_sub.save()
-
-                # Handle subscription cancellation approval
-                elif task.task_type == TaskType.SUBSCRIPTION_VERIFICATION:
-                    profile = task.content_object
-                    if profile:
-                        from django.utils import timezone as tz
-                        cancelled = profile.subscriptions.filter(
-                            status='PENDING_CANCELLATION'
-                        )
-                        cancelled.update(status='CANCELLED', cancelled_at=tz.now())
-                        # Downgrade user tier
-                        user = profile.user
-                        user.account_tier = 'FREE'
-                        user.save(update_fields=['account_tier'])
-                        
-            elif action_type == 'REJECT':
-                task.status = TaskStatus.REJECTED
-                        
-            elif action_type == 'REQUEST_CHANGES':
-                task.status = TaskStatus.CHANGES_REQUESTED
-
-            elif action_type == 'REVOKE':
-                task.status = TaskStatus.PENDING
-                task.completion_date = None
+                from kiboss.apps.common.services import VerificationService
+                VerificationService.process_verification(task, action_type, request.user, notes)
                 
-            elif action_type == 'SUBMIT_COMPLETION':
-                task.status = TaskStatus.COMPLETED
-                task.completion_date = timezone.now()
-                # Store feedback internally
-                if not isinstance(task.extra_data, dict):
-                    task.extra_data = {}
-                task.extra_data['completion_feedback'] = notes
-                task.extra_data['completion_attachment'] = request.data.get('attachment', '')
+                if action_type == 'APPROVE':
+                    task.status = TaskStatus.COMPLETED
+                    task.completion_date = timezone.now()
+                    
+                    # Activate latest pending subscription if it's a corporate verification
+                    if task.task_type in [TaskType.CORPORATE_RIDE_VERIFICATION, TaskType.CORPORATE_ASSET_VERIFICATION]:
+                        profile = task.content_object
+                        if profile:
+                            latest_sub = profile.subscriptions.filter(status='PENDING').first()
+                            if latest_sub:
+                                latest_sub.status = 'ACTIVE'
+                                latest_sub.save()
+    
+                    # Handle subscription cancellation approval
+                    elif task.task_type == TaskType.SUBSCRIPTION_VERIFICATION:
+                        profile = task.content_object
+                        if profile:
+                            from django.utils import timezone as tz
+                            cancelled = profile.subscriptions.filter(
+                                status='PENDING_CANCELLATION'
+                            )
+                            cancelled.update(status='CANCELLED', cancelled_at=tz.now())
+                            # Downgrade user tier
+                            user = profile.user
+                            user.account_tier = 'FREE'
+                            user.save(update_fields=['account_tier'])
+                            
+                elif action_type == 'REJECT':
+                    task.status = TaskStatus.REJECTED
+                            
+                elif action_type == 'REQUEST_CHANGES':
+                    task.status = TaskStatus.CHANGES_REQUESTED
+    
+                elif action_type == 'REVOKE':
+                    task.status = TaskStatus.PENDING
+                    task.completion_date = None
+                    
+                elif action_type == 'SUBMIT_COMPLETION':
+                    task.status = TaskStatus.COMPLETED
+                    task.completion_date = timezone.now()
+                    # Store feedback internally
+                    if not isinstance(task.extra_data, dict):
+                        task.extra_data = {}
+                    task.extra_data['completion_feedback'] = notes
+                    task.extra_data['completion_attachment'] = request.data.get('attachment', '')
+                    
+                task.save()
                 
-            task.save()
+                return Response(self.get_serializer(task).data)
             
-        return Response(self.get_serializer(task).data)
+        except Exception as e:
+            from django.core.exceptions import ValidationError
+            if isinstance(e, ValidationError):
+                error_msg = getattr(e, 'message_dict', getattr(e, 'messages', str(e)))
+                if isinstance(error_msg, dict):
+                    formatted = [f"{', '.join(v) if isinstance(v, list) else v}" for k, v in error_msg.items()]
+                    error_msg = " ".join(formatted)
+                elif isinstance(error_msg, list):
+                    error_msg = " ".join(error_msg)
+                return Response({'error': error_msg}, status=status.HTTP_400_BAD_REQUEST)
+            raise
 
     @action(detail=False, methods=['get'])
     def dashboard_summary(self, request):

@@ -24,8 +24,11 @@ class TaskWorkflowTests(APITestCase):
             first_name='Staff',
             last_name='Verifier'
         )
-        # Assign Verifier role
+        # Assign Verifier role and permissions
+        from kiboss.apps.rbac.models import Permission, RolePermission
         UserRole.objects.create(user=self.verifier, role='CAR_VERIFIER')
+        RolePermission.objects.get_or_create(role='CAR_VERIFIER', permission=Permission.ASSET_VERIFY)
+        RolePermission.objects.get_or_create(role='CAR_VERIFIER', permission=Permission.ASSET_VIEW)
         
         self.client.force_authenticate(user=self.user)
 
@@ -35,15 +38,18 @@ class TaskWorkflowTests(APITestCase):
         data = {
             'name': 'Test Car',
             'description': 'A nice test car',
-            'make': 'Toyota',
-            'model': 'Corolla',
-            'year': '2020',
-            'license_plate': 'KCA 123X',
-            'seating_capacity': '4'
+            'properties': {
+                'make': 'Toyota',
+                'model': 'Corolla',
+                'year': '2020',
+                'license_plate': 'KCA123X',
+                'vehicle_type': 'SEDAN'
+            }
         }
         
-        response = self.client.post(url, data, format='multipart')
+        response = self.client.post(url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
         
         # Check Asset created
         asset = Asset.objects.get(name='Test Car')
@@ -62,8 +68,24 @@ class TaskWorkflowTests(APITestCase):
             name='Car to Verify',
             asset_type=AssetType.VEHICLE,
             owner=self.user,
-            verification_status=VerificationStatus.PENDING
+            verification_status=VerificationStatus.PENDING,
+            properties={
+                'make': 'Toyota',
+                'model': 'Corolla',
+                'year': '2020',
+                'license_plate': 'KCA123Y',
+                'vehicle_type': 'SEDAN'
+            }
         )
+        # Add required documents
+        from kiboss.apps.assets.models import AssetDocument
+        for doc_type in ['REGISTRATION', 'INSURANCE', 'OWNERSHIP']:
+             AssetDocument.objects.create(
+                 asset=asset,
+                 document_type=doc_type,
+                 file='test.pdf',
+                 name=f'Test {doc_type}'
+             )
         task = StaffTask.objects.create(
             title='Verify Car',
             task_type=TaskType.VEHICLE_VERIFICATION,
