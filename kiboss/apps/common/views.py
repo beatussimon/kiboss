@@ -39,10 +39,19 @@ class FeedbackViewSet(viewsets.ModelViewSet):
         )
 
 
-class FAQViewSet(viewsets.ReadOnlyModelViewSet):
+class FAQViewSet(viewsets.ModelViewSet):
     """
-    Read-only ViewSet for FAQs.
+    ViewSet for FAQs. Admins can create/edit/delete.
     """
-    queryset = FAQ.objects.filter(is_active=True).order_by('order', '-created_at')
+    queryset = FAQ.objects.all().order_by('order', '-created_at')
     serializer_class = FAQSerializer
-    permission_classes = [permissions.AllowAny]
+
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve']:
+            return [permissions.AllowAny()]
+        return [permissions.IsAdminUser()]
+
+    def get_queryset(self):
+        if self.request.user.is_staff:
+            return FAQ.objects.all().order_by('order', '-created_at')
+        return FAQ.objects.filter(is_active=True).order_by('order', '-created_at')

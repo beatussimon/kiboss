@@ -123,22 +123,38 @@ class ThreadSerializer(serializers.ModelSerializer):
     participants = ThreadParticipantSerializer(many=True, read_only=True)
     last_message = serializers.SerializerMethodField()
     unread_count = serializers.SerializerMethodField()
-    
+    context_details = serializers.SerializerMethodField()
+
     class Meta:
         model = Thread
         fields = [
             'id', 'thread_type', 'subject', 'status',
             'participants', 'context_type', 'context_id', 'booking', 'ride',
+            'context_details',
             'message_count', 'last_message', 'unread_count',
             'is_flagged', 'flagged_reason',
             'auto_lock_after_completion', 'locked_at',
             'created_at', 'updated_at'
         ]
         read_only_fields = [
-            'id', 'message_count', 'is_flagged', 
+            'id', 'message_count', 'is_flagged',
             'locked_at', 'created_at', 'updated_at'
         ]
-    
+
+    def get_context_details(self, obj):
+        """Fetch details of the context item for UI embedding."""
+        if obj.context_type == 'ASSET' and obj.context_id:
+            from kiboss.apps.assets.models import Asset
+            from kiboss.apps.assets.serializers import AssetSerializer
+            asset = Asset.objects.filter(id=obj.context_id).first()
+            if asset:
+                return {'type': 'asset', 'name': asset.name, 'image': asset.photos.first().image.url if asset.photos.exists() else None, 'price': str(asset.pricing_rules.first().price) if asset.pricing_rules.exists() else None}
+        elif obj.ride:
+            return {'type': 'ride', 'name': f"{obj.ride.origin} to {obj.ride.destination}", 'date': obj.ride.departure_time.isoformat(), 'price': str(obj.ride.seat_price)}
+        elif obj.booking:
+            return {'type': 'booking', 'name': obj.booking.asset.name, 'start': obj.booking.start_time.isoformat(), 'end': obj.booking.end_time.isoformat()}
+        return None
+
     def get_last_message(self, obj):
         last_message = obj.messages.order_by('-created_at').first()
         if last_message:

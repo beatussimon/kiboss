@@ -54,6 +54,7 @@ class RideType(models.TextChoices):
     """Classification of the ride."""
     PERSONAL = 'PERSONAL', 'Personal Ride'
     BUSINESS = 'BUSINESS', 'Business Ride'
+    SPECIAL_HIRE = 'SPECIAL_HIRE', 'Special Hire (Charter)'
 
 
 class Ride(models.Model):
@@ -161,6 +162,28 @@ class Ride(models.Model):
     
     # Driver notes
     driver_notes = models.TextField(blank=True)
+    
+    # Special Hire (Charter) fields
+    HIRE_PURPOSE_CHOICES = [
+        ('WEDDING', 'Wedding'), ('FUNERAL', 'Funeral/Burial'),
+        ('SPORTS', 'Sports/Team Transport'), ('CORPORATE', 'Corporate Event'),
+        ('SCHOOL_TRIP', 'School Trip'), ('PILGRIMAGE', 'Religious/Pilgrimage'),
+        ('GRADUATION', 'Graduation'), ('AIRPORT_TRANSFER', 'Airport Transfer'),
+        ('OTHER', 'Other'),
+    ]
+    
+    hire_purpose = models.CharField(max_length=30, choices=HIRE_PURPOSE_CHOICES, blank=True)
+    hire_price_type = models.CharField(
+        max_length=20, 
+        choices=[('PER_TRIP','Per Trip'),('PER_DAY','Per Day'),('HOURLY','Hourly')],
+        default='PER_TRIP'
+    )
+    hire_total_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    hire_pax_count = models.PositiveIntegerField(null=True, blank=True)
+    hire_itinerary = models.JSONField(default=list, blank=True)
+    hire_deposit_required = models.BooleanField(default=False)
+    hire_deposit_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    hire_min_advance_hours = models.PositiveIntegerField(default=24)
     
     # Cancellation policy
     cancellation_cutoff_minutes = models.PositiveIntegerField(

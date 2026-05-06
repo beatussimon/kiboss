@@ -27,10 +27,6 @@ class PaymentSerializer(serializers.ModelSerializer):
     """Serializer for Payment model."""
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     payment_method_display = serializers.CharField(source='get_payment_method_display', read_only=True)
-    offline_method_details = OfflinePaymentMethodSerializer(source='offline_method', read_only=True)
-    manual_receipt_url = serializers.SerializerMethodField()
-    sender_phone = serializers.SerializerMethodField()
-    transaction_reference = serializers.SerializerMethodField()
     
     class Meta:
         model = Payment
@@ -43,49 +39,9 @@ class PaymentSerializer(serializers.ModelSerializer):
             'refunded_amount', 'refunded_at', 'refund_reason',
             'penalty_amount', 'penalty_reason',
             'failure_code', 'failure_message',
-            'manual_confirmation',
-            'manual_receipt_url',
-            'sender_phone',
-            'transaction_reference',
-            'offline_method',
-            'offline_method_details',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
-    
-    def get_manual_receipt_url(self, obj):
-        if obj.manual_receipt:
-            return obj.manual_receipt.url
-        return None
-
-    def get_sender_phone(self, obj):
-        if hasattr(obj, 'dispute') and False: pass # placeholder
-        from kiboss.apps.payments.models import ManualPaymentReceipt
-        # ManualPaymentReceipt handles new submissions, check if exists
-        try:
-            # Shopflix style receipt
-            from django.contrib.contenttypes.models import ContentType
-            if hasattr(obj, 'booking') and obj.booking:
-                ctype = ContentType.objects.get_for_model(obj.booking)
-                receipt = ManualPaymentReceipt.objects.filter(content_type=ctype, object_id=obj.booking.id).first()
-                if receipt:
-                    return receipt.sender_phone_number
-        except Exception:
-            pass
-        return None
-
-    def get_transaction_reference(self, obj):
-        from kiboss.apps.payments.models import ManualPaymentReceipt
-        try:
-            from django.contrib.contenttypes.models import ContentType
-            if hasattr(obj, 'booking') and obj.booking:
-                ctype = ContentType.objects.get_for_model(obj.booking)
-                receipt = ManualPaymentReceipt.objects.filter(content_type=ctype, object_id=obj.booking.id).first()
-                if receipt:
-                    return receipt.transaction_reference
-        except Exception:
-            pass
-        return None
 
 
 class PaymentDetailSerializer(serializers.ModelSerializer):

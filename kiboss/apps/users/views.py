@@ -502,24 +502,17 @@ class CorporateWorkerViewSet(APIView):
         return Response(serializer.data)
 
     def post(self, request):
-        """Create a new worker directly."""
+        """Create a new worker directly via invite flow."""
         cp = self._get_corporate_profile(request.user)
         if not cp:
             return Response({'error': 'Verified corporate profile required.'}, status=status.HTTP_403_FORBIDDEN)
         
         data = request.data.copy()
         
-        import uuid
-        import string
-        import random
-        
         # Determine email
         email = data.get('email', '').strip()
-        generated_email = False
         if not email:
-            email = f"worker_{uuid.uuid4().hex[:8]}@{cp.id.hex[:8]}.kiboss.local"
-            data['email'] = email
-            generated_email = True
+            return Response({'error': 'Email is required to invite a worker.'}, status=status.HTTP_400_BAD_REQUEST)
             
         serializer = CorporateWorkerSerializer(data=data)
         serializer.is_valid(raise_exception=True)
@@ -528,14 +521,6 @@ class CorporateWorkerViewSet(APIView):
         if CorporateWorker.objects.filter(corporate_profile=cp, email=email).exists():
             return Response({'error': 'Worker with this email already exists.'}, status=status.HTTP_400_BAD_REQUEST)
         
-        # Determine password
-        password = data.get('password', '').strip()
-        generated_password = False
-        if not password:
-            chars = string.ascii_letters + string.digits
-            password = ''.join(random.choice(chars) for _ in range(8))
-            generated_password = True
-            
         with transaction.atomic():
             linked_user = User.objects.filter(email=email).first()
             if not linked_user:
@@ -545,28 +530,21 @@ class CorporateWorkerViewSet(APIView):
                 
                 linked_user = User.objects.create_user(
                     email=email,
-                    password=password,
                     first_name=first_name,
                     last_name=last_name
                 )
-                linked_user.is_email_verified = True
+                linked_user.set_unusable_password()
+                linked_user.is_active = True  # Can be true, but password is unusable until reset
                 linked_user.save()
                 
             worker = serializer.save(
                 corporate_profile=cp,
                 user=linked_user,
-                status=CorporateWorker.InviteStatus.ACTIVE,
-                accepted_at=timezone.now()
+                status=CorporateWorker.InviteStatus.INVITED,
+                accepted_at=None
             )
             
-        response_data = CorporateWorkerSerializer(worker).data
-        if generated_email or generated_password:
-            response_data['credentials'] = {
-                'email': email,
-                'password': password
-            }
-            
-        return Response(response_data, status=status.HTTP_201_CREATED)
+        return Response({'message': f'Invitation sent to {email}'}, status=status.HTTP_201_CREATED)
 
     def patch(self, request):
         """Update a worker's role or status."""
@@ -934,6 +912,6 @@ class LogoutView(APIView):
     permission_classes = [AllowAny]
     def post(self, request):
         response = Response({'detail': 'Successfully logged out.'}, status=status.HTTP_200_OK)
-        response.delete_cookie('access_token', samesite='Lax', secure=not settings.DEBUG)
-        response.delete_cookie('refresh_token', samesite='Lax', secure=not settings.DEBUG)
+        response.delete_cookie('access_token', samesite='Lax')
+        response.delete_cookie('refresh_token', samesite='Lax')
         return response

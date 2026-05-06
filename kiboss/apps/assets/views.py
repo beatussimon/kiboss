@@ -28,9 +28,9 @@ class AssetViewSet(viewsets.ModelViewSet):
     """
     queryset = Asset.objects.select_related('owner', 'verified_by').order_by('-created_at')
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['name', 'description', 'city', 'country', 'address']
+    search_fields = ['name', 'description', 'city', 'country', 'address', 'asset_type', 'owner__email', 'owner__first_name', 'owner__last_name']
     ordering_fields = ['created_at', 'average_rating', 'total_bookings']
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
     def get_throttles(self):
         if self.action == 'upload_photos':
@@ -106,9 +106,6 @@ class AssetViewSet(viewsets.ModelViewSet):
         """
         asset_type = serializer.validated_data.get('asset_type')
         user = self.request.user
-        
-        if user.is_staff and not user.is_superuser:
-            raise PermissionDenied("Staff accounts cannot create asset listings. Use a personal account or request superadmin access.")
 
         # Check listing limits for non-child assets across FREE and PLUS plans
         is_child = serializer.validated_data.get('parent') is not None
@@ -154,7 +151,6 @@ class AssetViewSet(viewsets.ModelViewSet):
             
             # Auto-verify properties to allow instant listing
             asset = serializer.save(
-                owner=user,
                 verification_status=VerificationStatus.VERIFIED,
                 verified_at=timezone.now(),
                 verified_by=user,
@@ -168,7 +164,6 @@ class AssetViewSet(viewsets.ModelViewSet):
         if asset_type in [AssetType.HOTEL_ROOM, AssetType.CONFERENCE_HALL, AssetType.DINING_TABLE]:
             # Auto-verify services
             serializer.save(
-                owner=user,
                 verification_status=VerificationStatus.VERIFIED,
                 verified_at=timezone.now(),
                 verified_by=user,
@@ -185,26 +180,51 @@ class AssetViewSet(viewsets.ModelViewSet):
             if hasattr(user, 'corporate_profile') and user.corporate_profile.verification_status == 'VERIFIED':
                 is_verified_corporate = True
             
-            # Auto-verify vehicles for instant listing
+            # Only auto-verify for corporate or staff
+            is_auto_verify = is_verified_corporate or user.is_staff or user.is_superuser
+            
             asset = serializer.save(
-                owner=user,
-                verification_status=VerificationStatus.VERIFIED,
-                verified_at=timezone.now(),
-                verified_by=user,
+                verification_status=VerificationStatus.VERIFIED if is_auto_verify else VerificationStatus.PENDING,
+                verified_at=timezone.now() if is_auto_verify else None,
+                verified_by=user if is_auto_verify else None,
                 is_corporate=is_verified_corporate,
                 is_active=True,
-                is_listed=serializer.validated_data.get('is_listed', True)
+                is_listed=serializer.validated_data.get('is_listed', True) if is_auto_verify else False
             )
+            
+            if not is_auto_verify:
+                # Create a verification task for staff
+                from kiboss.apps.tasks.models import StaffTask
+                from django.contrib.contenttypes.models import ContentType
+                StaffTask.objects.create(
+                    title=f'Verify vehicle: {asset.name}',
+                    description=f'New vehicle registration from {user.email}.',
+                    task_type='VEHICLE_VERIFICATION',
+                    priority='MEDIUM',
+                    assigned_role='CAR_VERIFIER',
+                    content_type=ContentType.objects.get_for_model(asset),
+                    object_id=asset.id,
+                )
             return
         else:
             # Other assets auto-verified for now
             serializer.save(
-                owner=user,
-                verification_status=VerificationStatus.VERIFIED,
-                verified_at=timezone.now(),
-                verified_by=user,
+                verification_status=VerificationStatus.PENDING,
                 is_active=True,
-                is_listed=serializer.validated_data.get('is_listed', True)
+                is_listed=False,  # Cannot be listed until verified
+            )
+            # Create a verification task for staff
+            from kiboss.apps.tasks.models import StaffTask
+            from django.contrib.contenttypes.models import ContentType
+            asset = serializer.instance
+            StaffTask.objects.create(
+                title=f'Verify asset: {asset.name}',
+                description=f'New listing from {user.email}. Asset type: {asset.get_asset_type_display()}',
+                task_type='ASSET_VERIFICATION',
+                priority='MEDIUM',
+                assigned_role='VERIFIER',
+                content_type=ContentType.objects.get_for_model(asset),
+                object_id=asset.id,
             )
 
     def perform_update(self, serializer):
@@ -268,7 +288,7 @@ class AssetViewSet(viewsets.ModelViewSet):
                 output_field=FloatField(),
             ),
             is_promoted=is_promoted_q
-        ).order_by('-is_promoted', '-visibility_boost', '-average_rating', '-created_at')
+        ).order_by('-is_promoted', '-visibility_boost', '-created_at')
         
         # Filter by asset type
         asset_type = self.request.query_params.get('asset_type')
@@ -614,7 +634,14 @@ class PromotedListingViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         from kiboss.apps.assets.models import PromotedListing
-        queryset = PromotedListing.objects.all()
+        from django.utils import timezone
+        now = timezone.now()
+        queryset = PromotedListing.objects.filter(
+            is_active=True,
+            starts_at__lte=now,
+            ends_at__gte=now
+        ).select_related('asset').prefetch_related('asset__photos', 'asset__pricing_rules')
+        
         promo_type = self.request.query_params.get('type')
         if promo_type:
             queryset = queryset.filter(promotion_type=promo_type)

@@ -27,6 +27,7 @@ class VehicleRegistrationViewSet(viewsets.ModelViewSet):
     ViewSet for vehicle registration and verification submission.
     """
     queryset = Asset.objects.filter(asset_type=AssetType.VEHICLE)
+    serializer_class = AssetSerializer
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser] # Explicit parsers
 
@@ -49,7 +50,7 @@ class VehicleRegistrationViewSet(viewsets.ModelViewSet):
         data['asset_type'] = AssetType.VEHICLE
         # Force pending status initially
         data['verification_status'] = VerificationStatus.PENDING
-        
+
         serializer = AssetSerializer(data=data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         
@@ -80,7 +81,6 @@ class VehicleRegistrationViewSet(viewsets.ModelViewSet):
                     
         with transaction.atomic():
             asset = serializer.save(
-                owner=request.user, 
                 asset_type=AssetType.VEHICLE, 
                 verification_status=VerificationStatus.PENDING,
                 is_corporate=is_verified_corporate,
@@ -105,6 +105,28 @@ class VehicleRegistrationViewSet(viewsets.ModelViewSet):
                     document_type=doc_type,
                     file=file,
                     name=file.name
+                )
+            
+            # 2.5 Create Capacity records (Required for Rides)
+            properties = asset.properties
+            seat_capacity = properties.get('seat_capacity')
+            if seat_capacity:
+                from kiboss.apps.assets.models import AssetCapacity
+                AssetCapacity.objects.create(
+                    asset=asset,
+                    capacity_type='SEAT',
+                    quantity=int(seat_capacity),
+                    description='Standard vehicle seating'
+                )
+            
+            cargo_cap = properties.get('cargo_capacity_kg')
+            if cargo_cap:
+                from kiboss.apps.assets.models import AssetCapacity
+                AssetCapacity.objects.create(
+                    asset=asset,
+                    capacity_type='UNIT',
+                    quantity=int(cargo_cap),
+                    description='Cargo capacity in kg'
                 )
                 
             # 3. Create StaffTask for verification using the new service
@@ -166,7 +188,7 @@ class RideViewSet(viewsets.ModelViewSet):
 
     Provides CRUD operations and custom actions for ride-sharing.
     """
-    queryset = Ride.objects.select_related('driver', 'vehicle_asset').order_by('-departure_time')
+    queryset = Ride.objects.select_related('driver', 'vehicle_asset').order_by('departure_time')
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     pagination_class = RidePagination
 
@@ -188,9 +210,17 @@ class RideViewSet(viewsets.ModelViewSet):
         """
         user = self.request.user
         ride_type = serializer.validated_data.get('ride_type', 'PERSONAL')
+        total_seats = serializer.validated_data.get('total_seats', 1)
         
         if user.is_staff and not user.is_superuser:
             raise PermissionDenied("Staff accounts cannot offer rides. Use a personal account or request superadmin access.")
+        
+        if not user.is_superuser and not user.is_staff:
+            if user.account_tier in ['FREE', 'PLUS']:
+                if total_seats > 4:
+                    raise DRFValidationError({
+                        'total_seats': 'FREE and PLUS plans allow a maximum of 4 seats per ride. Upgrade to Business for unlimited seating.'
+                    })
         
         # Enforce Ride Limits
         if ride_type != 'BUSINESS':
@@ -309,7 +339,7 @@ class RideViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         from kiboss.apps.rides.models import RideStatus
-        queryset = Ride.objects.select_related('driver', 'vehicle_asset').prefetch_related('stops').order_by('-departure_time')
+        queryset = Ride.objects.select_related('driver', 'vehicle_asset').prefetch_related('stops').order_by('departure_time')
         
         # Filter by driver
         driver_id = self.request.query_params.get('driver')

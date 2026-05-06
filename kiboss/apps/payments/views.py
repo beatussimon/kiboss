@@ -160,46 +160,6 @@ class PaymentViewSet(viewsets.ModelViewSet):
         serializer = PaymentDetailSerializer(payment)
         return Response(serializer.data)
 
-    @action(detail=True, methods=['post'])
-    def confirm_offline_payment(self, request, pk=None):
-        """Confirm an offline payment (admin only)."""
-        if not request.user.is_staff and not request.user.is_superuser:
-            return Response(
-                {'error': 'Only admins can confirm offline payments'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        payment = self.get_object()
-        
-        if payment.status != PaymentStatus.PENDING:
-            return Response(
-                {'error': 'Payment is not in pending status'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Update payment with offline confirmation details
-        manual_confirmation = request.data.get('manual_confirmation', '')
-        offline_method_id = request.data.get('offline_method_id')
-        
-        if manual_confirmation:
-            payment.manual_confirmation = manual_confirmation
-        
-        if offline_method_id:
-            try:
-                offline_method = OfflinePaymentMethod.objects.get(id=offline_method_id)
-                payment.offline_method = offline_method
-            except OfflinePaymentMethod.DoesNotExist:
-                return Response(
-                    {'error': 'Offline payment method not found'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-        
-        # Move to escrow directly for offline payments (simulating bank transfer confirmation)
-        payment.hold_in_escrow()
-        
-        serializer = PaymentDetailSerializer(payment)
-        return Response(serializer.data)
-
 
 class DisputeViewSet(viewsets.ModelViewSet):
     """

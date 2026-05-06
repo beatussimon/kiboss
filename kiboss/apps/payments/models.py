@@ -576,16 +576,16 @@ class ManualPayment(models.Model):
         """Get the associated booking object."""
         if self.booking_type == 'ASSET':
             from kiboss.apps.bookings.models import Booking
-            return Booking.objects.get(id=self.booking_id)
+            return Booking.objects.filter(id=self.booking_id).first()
         elif self.booking_type == 'RIDE':
             from kiboss.apps.rides.models import SeatBooking
-            return SeatBooking.objects.get(id=self.booking_id)
+            return SeatBooking.objects.filter(id=self.booking_id).first()
         elif self.booking_type == 'SUBSCRIPTION':
             from kiboss.apps.users.models import UserSubscription, BusinessSubscription
-            try:
-                return UserSubscription.objects.get(id=self.booking_id)
-            except UserSubscription.DoesNotExist:
-                return BusinessSubscription.objects.filter(id=self.booking_id).first()
+            sub = UserSubscription.objects.filter(id=self.booking_id).first()
+            if sub:
+                return sub
+            return BusinessSubscription.objects.filter(id=self.booking_id).first()
         return None
 
 class ManualPaymentReceipt(models.Model):

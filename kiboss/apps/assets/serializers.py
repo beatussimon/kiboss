@@ -6,10 +6,16 @@ from rest_framework import serializers
 from kiboss.apps.assets.models import Asset, AssetType, AssetPhoto, AssetDocument, AssetPricing, AssetAvailability, AssetCapacity, AssetTimeGranularity, PromotedListing
 
 class PromotedListingSerializer(serializers.ModelSerializer):
+    asset_details = serializers.SerializerMethodField(read_only=True)
+    
     class Meta:
         model = PromotedListing
-        fields = ['id', 'asset', 'promotion_type', 'starts_at', 'ends_at', 'is_active', 'payment_reference', 'amount_paid', 'created_at']
-        read_only_fields = ['id', 'created_at']
+        fields = ['id', 'asset', 'asset_details', 'promotion_type', 'starts_at', 'ends_at', 'is_active', 'payment_reference', 'amount_paid', 'created_at']
+        read_only_fields = ['id', 'created_at', 'asset_details']
+
+    def get_asset_details(self, obj):
+        from kiboss.apps.assets.serializers import AssetListSerializer
+        return AssetListSerializer(obj.asset, context=self.context).data
 
 
 class AssetPhotoSerializer(serializers.ModelSerializer):
@@ -287,6 +293,8 @@ class AssetSerializer(serializers.ModelSerializer):
     """Full serializer for assets (for create/update)."""
     
     asset_type = serializers.ChoiceField(choices=AssetType.choices, required=True)
+    owner = serializers.HiddenField(default=serializers.CurrentUserDefault())
+    owner_detail = serializers.SerializerMethodField(read_only=True)
     owner_email = serializers.EmailField(source='owner.email', read_only=True)
     is_verified = serializers.SerializerMethodField()
     pricing_rules = AssetPricingSerializer(many=True, required=False)
@@ -296,18 +304,24 @@ class AssetSerializer(serializers.ModelSerializer):
         model = Asset
         fields = [
             'id', 'name', 'description', 'asset_type',
-            'owner', 'owner_email',
+            'owner', 'owner_detail', 'owner_email', 'parent',
             'address', 'city', 'state', 'country', 'postal_code',
             'latitude', 'longitude',
             'jurisdiction', 'timezone',
-            'verification_status', 'verification_notes',
-            'is_active', 'is_listed', 'is_verified', 'is_promoted',
+            'verification_status', 'verification_notes', 'verified_at', 'verified_by',
+            'is_active', 'is_listed', 'is_corporate', 'is_verified', 'is_promoted',
             'average_rating', 'total_reviews',
             'properties', 'pricing_rules',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'owner', 'owner_email', 'average_rating', 'total_reviews', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'owner_email', 'owner_detail', 'average_rating', 'total_reviews', 'created_at', 'updated_at', 'verification_status', 'verification_notes', 'verified_at', 'verified_by', 'is_active', 'is_corporate']
     
+    def get_owner_detail(self, obj):
+        from kiboss.apps.users.serializers import PublicUserSerializer
+        if obj.owner:
+            return PublicUserSerializer(obj.owner, context=self.context).data
+        return None
+
     def get_is_verified(self, obj):
         return obj.verification_status == 'VERIFIED'
     
@@ -324,7 +338,7 @@ class AssetSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         pricing_rules_data = validated_data.pop('pricing_rules', [])
-        asset = Asset.objects.create(**validated_data)
+        asset = super().create(validated_data)
         for pricing_data in pricing_rules_data:
             AssetPricing.objects.create(asset=asset, **pricing_data)
         return asset

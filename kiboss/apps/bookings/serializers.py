@@ -91,6 +91,7 @@ class BookingResponseSerializer(serializers.ModelSerializer):
     can_complete = serializers.SerializerMethodField()
     booking_category = serializers.SerializerMethodField()
     payment = serializers.SerializerMethodField()
+    has_pending_manual_payment = serializers.SerializerMethodField()
     
     class Meta:
         model = Booking
@@ -104,7 +105,7 @@ class BookingResponseSerializer(serializers.ModelSerializer):
             'cancellation_fee', 'cancelled_at',
             'completed_at', 'created_at', 'updated_at',
             'can_cancel', 'can_start', 'can_complete', 'booking_category',
-            'payment'
+            'payment', 'has_pending_manual_payment'
         ]
         read_only_fields = fields
     
@@ -137,6 +138,10 @@ class BookingResponseSerializer(serializers.ModelSerializer):
             from kiboss.apps.payments.serializers import PaymentSerializer
             return PaymentSerializer(obj.payment).data
         return None
+
+    def get_has_pending_manual_payment(self, obj):
+        from kiboss.apps.payments.models import ManualPayment
+        return ManualPayment.objects.filter(booking_id=obj.id, booking_type='ASSET', status='PENDING').exists()
 
 
 class BookingListResponseSerializer(serializers.ModelSerializer):

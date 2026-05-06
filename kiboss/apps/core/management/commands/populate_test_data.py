@@ -151,6 +151,25 @@ class Command(BaseCommand):
                 )
                 users.append(u)
 
+        from kiboss.apps.common.models import FAQ
+        faqs = [
+            ('How do I book a ride?', 'Go to Rides, find your route, choose a seat, and complete payment via M-Pesa.', 1),
+            ('How do I list an asset?', 'Create a free account, click List an Asset, fill in the details and photos, and submit for verification.', 2),
+            ('What payment methods are accepted?', 'We accept M-Pesa, bank transfer, and Lipa Namba. All payments are offline — you pay directly to the owner.', 3),
+            ('How long does verification take?', 'Identity verification takes 24–48 hours. Vehicle and asset verification may take up to 3 business days.', 4),
+            ('Can I cancel a booking?', 'Yes. Cancellation terms depend on the listing\'s policy. Check the cancellation policy on the listing before booking.', 5),
+            ('What is Special Hire?', 'Special hire lets you rent an entire vehicle (HiAce, Coaster, Land Cruiser) for private group use — weddings, funerals, sports trips, and more.', 6),
+            ('How does the Business tier work?', 'Business tier gives you unlimited listings, unlimited workers, advanced analytics, and no seat limits on rides. Register at /business/register.', 7),
+            ('Is Kiboss available outside Tanzania?', 'Currently, Kiboss operates within Tanzania. We plan to expand to neighbouring countries soon.', 8),
+            ('How do I become a verified host?', 'Submit your identity documents through Settings > Verification. Our team reviews within 48 hours.', 9),
+            ('What if a booking goes wrong?', 'Use the Report button on any booking. Our support team reviews disputes and assists both parties. Final responsibility rests with users per our Terms.', 10),
+        ]
+        for question, answer, order in faqs:
+            FAQ.objects.get_or_create(
+                question=question,
+                defaults={'answer': answer, 'order': order, 'is_active': True}
+            )
+
         def get_properties_for_type(atype):
             if atype == AssetType.HOTEL_ROOM:
                 return {'room_number': '101', 'floor': 1, 'room_type': 'STANDARD', 'max_adults': 2, 'max_total_occupancy': 2}
