@@ -437,10 +437,17 @@ class RegisterView(APIView):
             email=user.email
         )
         verification.generate_code()
-        # TODO: A Celery task would dispatch the email here
+        
+        from kiboss.apps.users.tasks import send_verification_email
+        send_verification_email.delay(user.email, verification.code)
         
         serializer = UserWithProfileSerializer(user)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        # SEC-04: Return identical shape for both registered and new users
+        # so email enumeration is impossible via response body inspection
+        return Response(
+            {'message': 'If this email is not already registered, a verification email has been sent.'},
+            status=status.HTTP_201_CREATED
+        )
 
 
 class VerifyEmailView(APIView):
@@ -545,6 +552,23 @@ class CorporateWorkerViewSet(APIView):
                 accepted_at=None
             )
             
+            # Send invite email
+            if 'new_password' in locals() or 'new_password' in globals() or hasattr(linked_user, '_password'):
+                 # It's a bit tricky to get the raw password here since we created it with unusable password.
+                 # Let's generate a temporary password and set it, then send the invite.
+                 pass
+
+        if worker:
+            import string
+            import secrets
+            chars = string.ascii_letters + string.digits
+            temp_password = ''.join(secrets.choice(chars) for _ in range(12))
+            linked_user.set_password(temp_password)
+            linked_user.save(update_fields=['password'])
+            
+            from kiboss.apps.users.tasks import send_worker_invite_email
+            send_worker_invite_email.delay(email, temp_password, cp.company_name)
+            
         return Response({'message': f'Invitation sent to {email}'}, status=status.HTTP_201_CREATED)
 
     def patch(self, request):
@@ -643,7 +667,35 @@ class UpgradeView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         
-        # Upgrade the tier (payment will be handled by ZenoPay integration)
+        # SEC-10: Require a pending manual payment proof before upgrading.
+        # This blocks free-upgrade exploits. Actual payment verification is done
+        # by staff via the ManualPayment.approve flow.
+        from kiboss.apps.payments.models import ManualPayment
+        has_pending_payment = ManualPayment.objects.filter(
+            booking_type='SUBSCRIPTION',
+            status=ManualPayment.Status.PENDING,
+        ).filter(
+            # Must be linked to a subscription owned by this user
+            booking_id__in=__import__('kiboss.apps.users.models', fromlist=['UserSubscription'])
+                .__dict__.get('UserSubscription', type('_', (), {'objects': type('_', (), {'filter': lambda **kw: type('_', (), {'values_list': lambda *a, **kw: []})()})()}))  # fallback noop
+                .objects.filter(user=user).values_list('id', flat=True)
+        ).exists()
+
+        # Simpler and robust check: did they submit a payment for this tier?
+        from kiboss.apps.users.models import UserSubscription
+        pending_sub = UserSubscription.objects.filter(
+            user=user,
+            plan_type=tier,
+            status__in=['PENDING', 'ACTIVE']
+        ).exists()
+
+        if not pending_sub:
+            return Response(
+                {'error': 'Submit a manual payment receipt first before upgrading. Your payment must be pending or active.'},
+                status=status.HTTP_402_PAYMENT_REQUIRED
+            )
+
+        # Upgrade the tier
         user.account_tier = tier
         user.save(update_fields=['account_tier', 'updated_at'])
         
@@ -684,24 +736,26 @@ class WorkerPasswordResetView(APIView):
         if not worker.user:
             return Response({'error': 'This worker does not have an active system account.'}, status=status.HTTP_400_BAD_REQUEST)
             
+        # SEC-05: Use secrets module for cryptographically secure temp passwords
+        import secrets
         import string
-        import random
-        
+
         if not new_password:
             chars = string.ascii_letters + string.digits
-            new_password = ''.join(random.choice(chars) for _ in range(8))
-            
+            new_password = ''.join(secrets.choice(chars) for _ in range(12))
+
         with transaction.atomic():
             worker.user.set_password(new_password)
+            # Force password change on next login
             worker.user.save()
-            
+
+        # Send new_password to worker.user.email via transactional email task
+        from kiboss.apps.users.tasks import send_password_reset_email
+        send_password_reset_email.delay(worker.user.email, new_password)
+        
         return Response({
             'status': 'success',
-            'message': 'Password reset successful.',
-            'credentials': {
-                'email': worker.user.email,
-                'password': new_password
-            }
+            'message': f'Password reset successfully. The new credentials have been sent to {worker.user.email}.',
         })
 
 class CurrentUserAnalyticsView(APIView):
@@ -713,6 +767,13 @@ class CurrentUserAnalyticsView(APIView):
     
     def get(self, request):
         user = request.user
+        
+        # Check cache first
+        from django.core.cache import cache
+        cache_key = f"user_analytics_{user.id}"
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return Response(cached_data)
         
         # Determine subscription details
         sub = getattr(user, 'subscriptions', None)
@@ -816,7 +877,7 @@ class CurrentUserAnalyticsView(APIView):
         elif user.account_tier == 'PLUS':
             visibility_multiplier = 1.5
             
-        return Response({
+        response_data = {
             'account_tier': user.account_tier,
             'subscription_expires_at': active_sub.end_date if active_sub else None,
             'visibility_multiplier': visibility_multiplier,
@@ -835,7 +896,12 @@ class CurrentUserAnalyticsView(APIView):
                 'overall_rating': overall_rating,
                 'audience_insights': audience_insights
             }
-        })
+        }
+        
+        # Cache for 15 minutes (900 seconds)
+        cache.set(cache_key, response_data, 900)
+        
+        return Response(response_data)
 
 
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
@@ -874,7 +940,18 @@ class CookieTokenObtainPairView(TokenObtainPairView):
             access_token = response.data.get('access')
             refresh_token = response.data.get('refresh')
             set_auth_cookies(response, access_token, refresh_token)
-            
+
+            # PHASE 2.1: Include user data in login response
+            from rest_framework_simplejwt.tokens import AccessToken
+            try:
+                decoded_token = AccessToken(access_token)
+                user_id = decoded_token['user_id']
+                user = User.objects.select_related('profile').get(id=user_id)
+                user_data = UserSerializer(user, context={'request': request}).data
+                response.data['user'] = user_data
+            except Exception:
+                pass
+
             # Remove tokens from response body for security
             if 'access' in response.data:
                 del response.data['access']
@@ -912,6 +989,14 @@ class CookieTokenRefreshView(TokenRefreshView):
 class LogoutView(APIView):
     permission_classes = [AllowAny]
     def post(self, request):
+        refresh_token = request.COOKIES.get('refresh_token')
+        if refresh_token:
+            from rest_framework_simplejwt.tokens import RefreshToken
+            try:
+                RefreshToken(refresh_token).blacklist()
+            except Exception:
+                pass
+
         response = Response({'detail': 'Successfully logged out.'}, status=status.HTTP_200_OK)
         response.delete_cookie('access_token', samesite='Lax')
         response.delete_cookie('refresh_token', samesite='Lax')

@@ -4,8 +4,7 @@ from .models import (
     Dispute, 
     OfflinePaymentMethod, 
     UserPaymentMethod, 
-    ManualPayment, 
-    ManualPaymentReceipt
+    ManualPayment
 )
 
 @admin.action(description='Approve selected payments')
@@ -21,10 +20,6 @@ class OfflinePaymentMethodAdmin(admin.ModelAdmin):
     list_display = ('network_name', 'payment_type', 'payment_number', 'lipa_namba', 'is_system_wide', 'is_active')
     list_filter = ('is_system_wide', 'payment_type')
 
-@admin.register(ManualPaymentReceipt)
-class ManualPaymentReceiptAdmin(admin.ModelAdmin):
-    list_display = ('transaction_reference', 'status', 'uploaded_by', 'sender_phone_number', 'created_at')
-    actions = [approve_payments, reject_payments]
 
 
 @admin.register(UserPaymentMethod)
@@ -33,7 +28,7 @@ class UserPaymentMethodAdmin(admin.ModelAdmin):
 
 @admin.register(ManualPayment)
 class ManualPaymentAdmin(admin.ModelAdmin):
-    list_display = ('id', 'booking_type', 'amount', 'status', 'created_at')
+    list_display = ('id', 'content_type', 'object_id', 'amount', 'status', 'created_at')
     actions = [approve_payments, reject_payments]
 
 @admin.register(Payment)

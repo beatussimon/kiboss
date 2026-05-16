@@ -23,6 +23,7 @@ class StaffTaskViewSet(viewsets.ModelViewSet):
     queryset = StaffTask.objects.all()
     serializer_class = StaffTaskSerializer
     permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = []  # Exempt internal staff workflows from rate limiting
 
     def get_queryset(self):
         """

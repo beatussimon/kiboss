@@ -1,12 +1,19 @@
-__pycache__/
-*.py[cod]
-*$py.class
-.env
+# Django
+staticfiles/
+media/
 db.sqlite3
-/media/
-/staticfiles/
-node_modules/
-.pytest_cache/
-*.log
+.env
+*.pyc
+__pycache__/
 kibossvenv/
-bandit_report.json
+
+# Local development
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# Editor settings
+.vscode/
+.idea/
+*.swp

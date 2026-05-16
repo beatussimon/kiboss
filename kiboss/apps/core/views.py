@@ -28,3 +28,20 @@ class PublicSettingsView(APIView):
         return Response({
             'hero_image': hero_image,
         })
+
+
+def health_check(request):
+    """
+    Simple health check endpoint for monitoring.
+    """
+    from django.db import connections
+    from django.db.utils import OperationalError
+    from django.http import JsonResponse
+    
+    db_conn = connections['default']
+    try:
+        db_conn.cursor()
+    except OperationalError:
+        return JsonResponse({"status": "unhealthy", "database": "unavailable"}, status=503)
+    
+    return JsonResponse({"status": "healthy"})

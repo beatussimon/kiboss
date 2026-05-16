@@ -25,7 +25,6 @@ def api_root(request):
             'documentation': '/api/v1/docs/',
             'schema': '/api/v1/schema/',
             'resources': {
-                'auth': '/api/v1/auth/',
                 'users': '/api/v1/users/',
                 'assets': '/api/v1/assets/',
                 'bookings': '/api/v1/bookings/',
@@ -51,9 +50,6 @@ urlpatterns = [
     
     # API v1 - Root
     path('api/v1/', api_root, name='api-root'),
-    
-    # API v1 - JWT Authentication (from users app)
-    path('api/v1/auth/', include('kiboss.apps.users.urls')),
     
     # API v1 - Schema
     path('api/v1/schema/', SpectacularAPIView.as_view(), name='schema'),

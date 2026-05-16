@@ -76,7 +76,29 @@ class UserProfileSerializer(serializers.ModelSerializer):
         return None
 
 
-class UserWithProfileSerializer(serializers.ModelSerializer):
+class UserCountsMixin:
+    def get_followers_count(self, obj):
+        from kiboss.apps.social.models import Follow
+        return Follow.objects.filter(following=obj).count()
+
+    def get_following_count(self, obj):
+        from kiboss.apps.social.models import Follow
+        return Follow.objects.filter(follower=obj).count()
+
+    def get_total_listings(self, obj):
+        from kiboss.apps.assets.models import Asset
+        return Asset.objects.filter(owner=obj, is_active=True).count()
+
+    def get_total_rides(self, obj):
+        from kiboss.apps.rides.models import Ride
+        return Ride.objects.filter(driver=obj).count()
+
+    def get_total_reviews(self, obj):
+        from kiboss.apps.ratings.models import Rating
+        return Rating.objects.filter(reviewee=obj, status='APPROVED').count()
+
+
+class UserWithProfileSerializer(UserCountsMixin, serializers.ModelSerializer):
     """Serializer for User model with profile data."""
     profile = UserProfileSerializer(read_only=True)
     corporate_profile = CorporateProfileSerializer(read_only=True)
@@ -130,26 +152,6 @@ class UserWithProfileSerializer(serializers.ModelSerializer):
         roles = obj.user_roles.values_list('role', flat=True)
         perms = RolePermission.objects.filter(role__in=roles).values_list('permission', flat=True)
         return list(set(perms))
-        
-    def get_followers_count(self, obj):
-        from kiboss.apps.social.models import Follow
-        return Follow.objects.filter(following=obj).count()
-
-    def get_following_count(self, obj):
-        from kiboss.apps.social.models import Follow
-        return Follow.objects.filter(follower=obj).count()
-
-    def get_total_listings(self, obj):
-        from kiboss.apps.assets.models import Asset
-        return Asset.objects.filter(owner=obj, is_active=True).count()
-
-    def get_total_rides(self, obj):
-        from kiboss.apps.rides.models import Ride
-        return Ride.objects.filter(driver=obj).count()
-
-    def get_total_reviews(self, obj):
-        from kiboss.apps.ratings.models import Rating
-        return Rating.objects.filter(reviewee=obj, status='APPROVED').count()
 
 
 class UserMinimalSerializer(serializers.ModelSerializer):
@@ -173,7 +175,7 @@ class UserMinimalSerializer(serializers.ModelSerializer):
         return obj.verification_badge
 
 
-class UserSerializer(serializers.ModelSerializer):
+class UserSerializer(UserCountsMixin, serializers.ModelSerializer):
     """Serializer for User model."""
     profile = UserProfileSerializer(read_only=True)
     corporate_profile = CorporateProfileSerializer(read_only=True)
@@ -229,26 +231,6 @@ class UserSerializer(serializers.ModelSerializer):
         roles = obj.user_roles.values_list('role', flat=True)
         perms = RolePermission.objects.filter(role__in=roles).values_list('permission', flat=True)
         return list(set(perms))
-
-    def get_followers_count(self, obj):
-        from kiboss.apps.social.models import Follow
-        return Follow.objects.filter(following=obj).count()
-
-    def get_following_count(self, obj):
-        from kiboss.apps.social.models import Follow
-        return Follow.objects.filter(follower=obj).count()
-
-    def get_total_listings(self, obj):
-        from kiboss.apps.assets.models import Asset
-        return Asset.objects.filter(owner=obj, is_active=True).count()
-
-    def get_total_rides(self, obj):
-        from kiboss.apps.rides.models import Ride
-        return Ride.objects.filter(driver=obj).count()
-
-    def get_total_reviews(self, obj):
-        from kiboss.apps.ratings.models import Rating
-        return Rating.objects.filter(reviewee=obj, status='APPROVED').count()
 
     def get_has_verified_vehicle(self, obj):
         from kiboss.apps.assets.models import Asset, AssetType
@@ -375,8 +357,14 @@ class PublicUserSerializer(serializers.ModelSerializer):
         from kiboss.apps.ratings.models import Rating
         from django.utils import timezone as tz
         
-        data['follower_count'] = Follow.objects.filter(following=instance).count()
-        data['following_count'] = Follow.objects.filter(follower=instance).count()
+        follower_count = Follow.objects.filter(following=instance).count()
+        following_count = Follow.objects.filter(follower=instance).count()
+        total_listings = Asset.objects.filter(owner=instance, is_active=True).count()
+        total_rides = Ride.objects.filter(driver=instance).count()
+        review_count = getattr(instance, 'total_ratings_count', 0)
+
+        data['follower_count'] = follower_count
+        data['following_count'] = following_count
         
         # Listings — include verification_status and photo_url
         assets = Asset.objects.filter(owner=instance, is_active=True).prefetch_related('photos', 'pricing_rules')[:12]
@@ -443,11 +431,11 @@ class PublicUserSerializer(serializers.ModelSerializer):
             })
             
         data['rating'] = float(instance.trust_score) / 20 if hasattr(instance, 'trust_score') and instance.trust_score else 0
-        data['review_count'] = getattr(instance, 'total_ratings_count', 0)
+        data['review_count'] = review_count
         
-        data['total_listings'] = Asset.objects.filter(owner=instance, is_active=True).count()
-        data['total_rides'] = Ride.objects.filter(driver=instance).count()
-        data['total_reviews'] = data['review_count']
+        data['total_listings'] = total_listings
+        data['total_rides'] = total_rides
+        data['total_reviews'] = review_count
         
         # Trust badges
         data['trust_badges'] = instance.trust_badges if hasattr(instance, 'trust_badges') else []
@@ -476,6 +464,5 @@ class PublicUserSerializer(serializers.ModelSerializer):
             data['is_following'] = False
             
         data['username'] = instance.email.split('@')[0] if instance.email else ''
-        data['email'] = instance.email
         
         return data

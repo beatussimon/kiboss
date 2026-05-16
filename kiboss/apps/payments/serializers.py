@@ -136,6 +136,9 @@ class ManualPaymentSerializer(serializers.ModelSerializer):
     user_payment_method_details = UserPaymentMethodSerializer(source='user_payment_method', read_only=True)
     booking_details = serializers.SerializerMethodField()
     
+    booking_type = serializers.SerializerMethodField()
+    booking_id = serializers.UUIDField(source='object_id', read_only=True)
+    
     class Meta:
         model = ManualPayment
         fields = [
@@ -148,10 +151,19 @@ class ManualPaymentSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'status', 'admin_notes', 'reviewed_at', 'reviewed_by', 'created_at', 'updated_at']
     
+    def get_booking_type(self, obj):
+        if not obj.content_type: return None
+        model = obj.content_type.model
+        if model == 'booking': return 'ASSET'
+        if model == 'seatbooking': return 'RIDE'
+        if model in ['usersubscription', 'businesssubscription']: return 'SUBSCRIPTION'
+        return None
+
     def get_booking_details(self, obj):
         booking = obj.booking
         if booking:
-            if obj.booking_type == 'ASSET':
+            booking_type = self.get_booking_type(obj)
+            if booking_type == 'ASSET':
                 return {
                     'type': 'ASSET',
                     'id': str(booking.id),
@@ -161,7 +173,7 @@ class ManualPaymentSerializer(serializers.ModelSerializer):
                     'end_time': booking.end_time.isoformat() if booking.end_time else None,
                     'total_price': str(booking.total_price) if booking.total_price else None,
                 }
-            elif obj.booking_type == 'RIDE':
+            elif booking_type == 'RIDE':
                 return {
                     'type': 'RIDE',
                     'id': str(booking.id),
@@ -170,7 +182,7 @@ class ManualPaymentSerializer(serializers.ModelSerializer):
                     'seat_number': booking.seat_number,
                     'price': str(booking.price) if booking.price else None,
                 }
-            elif obj.booking_type == 'SUBSCRIPTION':
+            elif booking_type == 'SUBSCRIPTION':
                 return {
                     'type': 'SUBSCRIPTION',
                     'id': str(booking.id),

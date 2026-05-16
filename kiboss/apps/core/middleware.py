@@ -21,10 +21,21 @@ def get_user(token_key):
             logger.debug(f"DEBUG AUTH: UntypedToken validation failed: {str(e)}")
             return AnonymousUser()
 
-        # 2. Decode and get user ID
+        # 2. Decode, check blacklist, and get user ID
         try:
             token = AccessToken(token_key)
             user_id = token['user_id']
+
+            # SEC-07: Check token blacklist for logged-out tokens
+            try:
+                from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
+                jti = token.get('jti')
+                if jti and BlacklistedToken.objects.filter(token__jti=jti).exists():
+                    logger.debug(f"DEBUG AUTH: Token {jti} is blacklisted")
+                    return AnonymousUser()
+            except Exception:
+                pass
+
             user = User.objects.get(id=user_id)
             if not user.is_active:
                 logger.debug(f"DEBUG AUTH: User {user.email} is inactive")
@@ -46,7 +57,7 @@ def get_user(token_key):
 
 class JwtAuthMiddleware:
     """
-    Custom middleware that takes a token from the query string and authenticates the user.
+    Custom middleware that takes a token from the query string or cookies and authenticates the user.
     """
     def __init__(self, app):
         self.app = app
@@ -54,17 +65,28 @@ class JwtAuthMiddleware:
     async def __call__(self, scope, receive, send):
         logger.debug(f"DEBUG ASGI: WebSocket request to {scope.get('path')}")
         try:
-            # Extract token from query string
+            token = None
+            
+            # 1. Try to extract token from query string
             query_string = scope.get("query_string", b"").decode("utf-8")
             from urllib.parse import parse_qs
             query_params = parse_qs(query_string)
             token = query_params.get("token", [None])[0]
             
+            # 2. Try to extract token from cookies if not in query string
+            if not token:
+                headers = dict(scope.get("headers", []))
+                if b"cookie" in headers:
+                    from http.cookies import SimpleCookie
+                    cookies = SimpleCookie(headers[b"cookie"].decode("utf-8"))
+                    if "access_token" in cookies:
+                        token = cookies["access_token"].value
+            
             if token:
                 user = await get_user(token)
                 scope["user"] = user
             else:
-                logger.debug("DEBUG AUTH: No token provided in query string")
+                logger.debug("DEBUG AUTH: No token provided in query string or cookies")
                 scope["user"] = AnonymousUser()
         except Exception as e:
             logger.debug(f"DEBUG AUTH: Exception in middleware __call__: {str(e)}")

@@ -110,30 +110,14 @@ class UserQuerySet(models.QuerySet):
     """Custom queryset to handle safe cleanup of related protected records."""
 
     def delete(self, *args, **kwargs):
-        from django.core.exceptions import PermissionDenied
-        from django.db.models import Q
-        from kiboss.apps.bookings.models import Booking
-        from kiboss.apps.rides.models import Ride, SeatBooking, RideSchedule
-        from kiboss.apps.payments.models import Payment, Dispute
-
+        """
+        Custom queryset delete to trigger individual model deletes
+        so the background task is queued for each user.
+        """
         for user in self:
-            active = Booking.objects.filter(
-                Q(renter=user) | Q(asset__owner=user),
-                status__in=['ACTIVE', 'CONFIRMED']
-            ).exists()
-            if active:
-                raise PermissionDenied(f"Cannot delete user {user.email}: has active or confirmed bookings")
-
-            SeatBooking.objects.filter(passenger=user).delete()
-            RideSchedule.objects.filter(driver=user).delete()
-            Ride.objects.filter(driver=user).delete()
-
-            impacted_bookings = Booking.objects.filter(models.Q(renter=user) | models.Q(asset__owner=user))
-            Dispute.objects.filter(booking__in=impacted_bookings).delete()
-            Payment.objects.filter(booking__in=impacted_bookings).delete()
-            impacted_bookings.delete()
-
-        return super().delete(*args, **kwargs)
+            user.delete()
+            
+        return len(self), {}
 
 
 class User(AbstractUser):
@@ -230,6 +214,31 @@ class User(AbstractUser):
     def is_verified(self):
         """Check if user meets verification threshold."""
         return self.is_email_verified and self.is_phone_verified
+        
+    def delete(self, *args, **kwargs):
+        """
+        Override standard deletion to schedule a background task.
+        Performs basic fast deletion logic immediately, but offloads cascading.
+        """
+        from django.core.exceptions import PermissionDenied
+        from django.db.models import Q
+        from kiboss.apps.bookings.models import Booking
+        
+        # Immediate check to fail fast before queueing task
+        active = Booking.objects.filter(
+            Q(renter=self) | Q(asset__owner=self),
+            status__in=['ACTIVE', 'CONFIRMED']
+        ).exists()
+        if active:
+            raise PermissionDenied(f"Cannot delete user {self.email}: has active or confirmed bookings")
+            
+        # Deactivate user immediately so they can't log in
+        self.is_active = False
+        self.save(update_fields=['is_active'])
+        
+        # Queue background deletion
+        from kiboss.apps.users.tasks import delete_user_background
+        delete_user_background.delay(self.id)
     
     @property
     def verification_badge(self):

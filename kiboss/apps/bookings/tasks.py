@@ -41,7 +41,7 @@ def expire_pending_bookings(self):
     
     try:
         from django.contrib.contenttypes.models import ContentType
-        from kiboss.apps.payments.models import ManualPaymentReceipt
+        from kiboss.apps.payments.models import ManualPayment
         from kiboss.apps.rides.models import SeatBooking, SeatBookingStatus
 
         # Find pending bookings older than 15 minutes
@@ -62,7 +62,7 @@ def expire_pending_bookings(self):
 
         count = 0
         for booking in expired_bookings:
-            if ManualPaymentReceipt.objects.filter(
+            if ManualPayment.objects.filter(
                 content_type=asset_ctype,
                 object_id=booking.id,
                 status__in=['PENDING', 'APPROVED']
@@ -111,7 +111,7 @@ def expire_pending_bookings(self):
                 logger.error(f"Error expiring booking {booking.id}: {e}")
 
         for seat_booking in expired_ride_bookings:
-            if ManualPaymentReceipt.objects.filter(
+            if ManualPayment.objects.filter(
                 content_type=ride_ctype,
                 object_id=seat_booking.id,
                 status__in=['PENDING', 'APPROVED']

@@ -360,12 +360,18 @@ class ManualPaymentViewSet(viewsets.ModelViewSet):
         if hasattr(self.request.user, 'corporate_profile'):
             business_subscriptions = BusinessSubscription.objects.filter(profile=self.request.user.corporate_profile).values_list('id', flat=True)
             
+        from django.contrib.contenttypes.models import ContentType
+        asset_ctype = ContentType.objects.get_for_model(Booking)
+        ride_ctype = ContentType.objects.get_for_model(SeatBooking)
+        user_sub_ctype = ContentType.objects.get_for_model(UserSubscription)
+        biz_sub_ctype = ContentType.objects.get_for_model(BusinessSubscription)
+        
         return ManualPayment.objects.filter(
-            booking_type='ASSET', booking_id__in=user_asset_bookings
+            content_type=asset_ctype, object_id__in=user_asset_bookings
         ) | ManualPayment.objects.filter(
-            booking_type='RIDE', booking_id__in=user_ride_bookings
+            content_type=ride_ctype, object_id__in=user_ride_bookings
         ) | ManualPayment.objects.filter(
-            booking_type='SUBSCRIPTION', booking_id__in=list(user_subscriptions) + list(business_subscriptions)
+            content_type__in=[user_sub_ctype, biz_sub_ctype], object_id__in=list(user_subscriptions) + list(business_subscriptions)
         )
     
     def create(self, request, *args, **kwargs):
@@ -392,9 +398,30 @@ class ManualPaymentViewSet(viewsets.ModelViewSet):
                 )
             data['booking_id'] = str(sub.id)
             
+        booking_type = data.pop('booking_type', None)
+        if isinstance(booking_type, list): booking_type = booking_type[0]
+        
+        booking_id = data.pop('booking_id', None)
+        if isinstance(booking_id, list): booking_id = booking_id[0]
+
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
+        
+        # Determine content type
+        from django.contrib.contenttypes.models import ContentType
+        content_type = None
+        if booking_type == 'ASSET':
+            from kiboss.apps.bookings.models import Booking
+            content_type = ContentType.objects.get_for_model(Booking)
+        elif booking_type == 'RIDE':
+            from kiboss.apps.rides.models import SeatBooking
+            content_type = ContentType.objects.get_for_model(SeatBooking)
+        elif booking_type == 'SUBSCRIPTION':
+            from kiboss.apps.users.models import UserSubscription
+            content_type = ContentType.objects.get_for_model(UserSubscription)
+            
+        serializer.save(content_type=content_type, object_id=booking_id)
+
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
         
@@ -402,7 +429,8 @@ class ManualPaymentViewSet(viewsets.ModelViewSet):
         payment = serializer.save(status=ManualPayment.Status.PENDING)
         
         # Create a StaffTask for subscription payments
-        if payment.booking_type == 'SUBSCRIPTION':
+        booking_type = getattr(payment.content_type, 'model', '') if payment.content_type else ''
+        if 'subscription' in booking_type:
             from kiboss.apps.tasks.models import StaffTask, TaskType
             from django.contrib.contenttypes.models import ContentType
             
@@ -425,31 +453,34 @@ class ManualPaymentViewSet(viewsets.ModelViewSet):
                 {'error': 'Only admins can approve manual payments'},
                 status=status.HTTP_403_FORBIDDEN
             )
-        
+
         manual_payment = self.get_object()
-        
+        booking = manual_payment.booking
+        if not booking:
+            return Response({'error': 'Associated booking not found.'}, status=400)
+
         if manual_payment.status != ManualPayment.Status.PENDING:
             return Response(
                 {'error': 'Manual payment is not pending approval'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+
         manual_payment.status = ManualPayment.Status.APPROVED
         manual_payment.admin_notes = request.data.get('admin_notes', '')
         manual_payment.reviewed_at = timezone.now()
         manual_payment.reviewed_by = request.user
         manual_payment.save()
-        
+
         # Update the associated booking status if needed
         try:
-            booking = manual_payment.booking
-            if manual_payment.booking_type == 'ASSET':
+            booking_type = getattr(manual_payment.content_type, 'model', '') if manual_payment.content_type else ''
+            if booking_type == 'booking':
                 from kiboss.apps.bookings.services import BookingService
                 BookingService.confirm_booking(booking_id=booking.id, actor=request.user)
-            elif manual_payment.booking_type == 'RIDE':
+            elif booking_type == 'seatbooking':
                 from kiboss.apps.rides.services import SeatBookingService
                 SeatBookingService.confirm_seat_booking(booking, request.user)
-            elif manual_payment.booking_type == 'SUBSCRIPTION':
+            elif 'subscription' in booking_type:
                 from kiboss.apps.users.subscription_service import SubscriptionService
                 SubscriptionService.activate(booking, confirmed_by=request.user)
         except Exception as e:
@@ -461,12 +492,12 @@ class ManualPaymentViewSet(viewsets.ModelViewSet):
             from kiboss.apps.notifications.services import NotificationService
             from kiboss.apps.notifications.models import NotificationCategory
             
-            notification_user = None
-            if manual_payment.booking_type == 'ASSET':
+            booking_type = getattr(manual_payment.content_type, 'model', '') if manual_payment.content_type else ''
+            if booking_type == 'booking':
                 notification_user = booking.renter
-            elif manual_payment.booking_type == 'RIDE':
+            elif booking_type == 'seatbooking':
                 notification_user = booking.passenger
-            elif manual_payment.booking_type == 'SUBSCRIPTION':
+            elif 'subscription' in booking_type:
                 notification_user = booking.user if hasattr(booking, 'user') else (booking.profile.user if hasattr(booking, 'profile') else None)
             
             if notification_user:
@@ -487,32 +518,41 @@ class ManualPaymentViewSet(viewsets.ModelViewSet):
     def confirm_by_owner(self, request, pk=None):
         manual_payment = self.get_object()
         booking = manual_payment.booking
-        
+        if not booking:
+            return Response({'error': 'Associated booking not found.'}, status=400)
+
         # Check if user is owner of the asset or driver of the ride
         is_owner = False
-        if manual_payment.booking_type == 'ASSET' and booking:
+        booking_type = getattr(manual_payment.content_type, 'model', '') if manual_payment.content_type else ''
+        if booking_type == 'booking' and booking:
             is_owner = booking.asset.owner == request.user
-        elif manual_payment.booking_type == 'RIDE' and booking:
+        elif booking_type == 'seatbooking' and booking:
             is_owner = booking.ride.driver == request.user
-            
+
         if not is_owner:
-            return Response({'error': 'Only the owner can confirm this payment'}, status=403)
-            
+            return Response(
+                {'error': 'Only the owner can confirm this payment'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         if manual_payment.status != ManualPayment.Status.PENDING:
-            return Response({'error': 'Payment is not in pending status'}, status=400)
+            return Response(
+                {'error': 'Payment is not in pending status'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         manual_payment.status = ManualPayment.Status.APPROVED
         manual_payment.reviewed_by = request.user
         manual_payment.reviewed_at = timezone.now()
         manual_payment.save()
-        
+
         from kiboss.apps.bookings.services import BookingService
-        if manual_payment.booking_type == 'ASSET':
+        if booking_type == 'booking':
             BookingService.confirm_booking(booking_id=booking.id, actor=request.user)
-        elif manual_payment.booking_type == 'RIDE':
+        elif booking_type == 'seatbooking':
             from kiboss.apps.rides.services import SeatBookingService
             SeatBookingService.confirm_seat_booking(booking, request.user)
-            
+
         return Response({'status': 'confirmed'})
     
     @action(detail=True, methods=['post'])
@@ -545,11 +585,12 @@ class ManualPaymentViewSet(viewsets.ModelViewSet):
             from kiboss.apps.notifications.models import NotificationCategory
             
             notification_user = None
-            if manual_payment.booking_type == 'ASSET':
+            booking_type = getattr(manual_payment.content_type, 'model', '') if manual_payment.content_type else ''
+            if booking_type == 'booking':
                 notification_user = booking.renter
-            elif manual_payment.booking_type == 'RIDE':
+            elif booking_type == 'seatbooking':
                 notification_user = booking.passenger
-            elif manual_payment.booking_type == 'SUBSCRIPTION':
+            elif 'subscription' in booking_type:
                 notification_user = booking.user if hasattr(booking, 'user') else (booking.profile.user if hasattr(booking, 'profile') else None)
 
             if notification_user:

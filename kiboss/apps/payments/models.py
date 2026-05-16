@@ -509,9 +509,18 @@ class ManualPayment(models.Model):
         APPROVED = 'APPROVED', 'Approved'
         REJECTED = 'REJECTED', 'Rejected'
     
-    # Reference to either Booking (asset), SeatBooking (ride), or Subscription
-    booking_type = models.CharField(max_length=15, choices=[('ASSET', 'Asset Booking'), ('RIDE', 'Ride Seat Booking'), ('SUBSCRIPTION', 'Subscription')])
-    booking_id = models.UUIDField()
+    # Generic Foreign Key replacing booking_type and booking_id
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, null=True, blank=True)
+    object_id = models.UUIDField(null=True, blank=True)
+    content_object = GenericForeignKey('content_type', 'object_id')
+    
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='manual_payments',
+        null=True, blank=True
+    )
+    sender_phone_number = models.CharField(max_length=20, blank=True)
     
     # Amount and currency
     amount = models.DecimalField(max_digits=10, decimal_places=2)
@@ -569,53 +578,11 @@ class ManualPayment(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        return f"Manual Payment {self.id} - {self.booking_type} - {self.status}"
+        return f"Manual Payment {self.id} - {self.content_type.model if self.content_type else 'unknown'} - {self.status}"
     
     @property
     def booking(self):
-        """Get the associated booking object."""
-        if self.booking_type == 'ASSET':
-            from kiboss.apps.bookings.models import Booking
-            return Booking.objects.filter(id=self.booking_id).first()
-        elif self.booking_type == 'RIDE':
-            from kiboss.apps.rides.models import SeatBooking
-            return SeatBooking.objects.filter(id=self.booking_id).first()
-        elif self.booking_type == 'SUBSCRIPTION':
-            from kiboss.apps.users.models import UserSubscription, BusinessSubscription
-            sub = UserSubscription.objects.filter(id=self.booking_id).first()
-            if sub:
-                return sub
-            return BusinessSubscription.objects.filter(id=self.booking_id).first()
-        return None
+        """Get the associated booking object via GenericForeignKey."""
+        return self.content_object
 
-class ManualPaymentReceipt(models.Model):
-    """
-    Shopflix Flow: Manual payment receipt linked via GenericForeignKey to Booking or Subscription.
-    """
-    class Status(models.TextChoices):
-        PENDING = 'PENDING', 'Pending Approval'
-        APPROVED = 'APPROVED', 'Approved'
-        REJECTED = 'REJECTED', 'Rejected'
-
-    # Generic Foreign Key
-    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    object_id = models.UUIDField()
-    content_object = GenericForeignKey('content_type', 'object_id')
-
-    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='uploaded_receipts')
-    sender_phone_number = models.CharField(max_length=20)
-    transaction_reference = models.CharField(max_length=100, unique=True)
-    transaction_message = models.TextField(help_text="For pasting SMS")
-    receipt_image = models.ImageField(upload_to='receipts/%Y/%m/', blank=True, null=True)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
-    
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = 'manual_payment_receipts'
-        ordering = ['-created_at']
-
-    def __str__(self):
-        return f"Receipt {self.transaction_reference} - {self.status}"
 

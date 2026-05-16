@@ -353,7 +353,15 @@ class BookingViewSet(viewsets.GenericViewSet):
         asset_id = request.query_params.get('asset_id')
         start_time_str = request.query_params.get('start_time')
         end_time_str = request.query_params.get('end_time')
-        quantity = int(request.query_params.get('quantity', 1))
+        try:
+            quantity = int(request.query_params.get('quantity', 1))
+            if quantity < 1:
+                raise ValueError()
+        except (ValueError, TypeError):
+            return Response(
+                {'error': 'quantity must be a positive integer'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         if not all([asset_id, start_time_str, end_time_str]):
             return Response(
@@ -560,7 +568,9 @@ class BookingViewSet(viewsets.GenericViewSet):
         )
 
         if payment.status == 'PENDING':
-            payment.authorize(payment.amount, {'last_four': '4242', 'brand': 'VISA'})
+            last_four = request.data.get('last_four', 'N/A')
+            brand = request.data.get('brand', payment_method)
+            payment.authorize(payment.amount, {'last_four': last_four, 'brand': brand})
             payment.hold_in_escrow()
 
         # Remove the automatic confirm_booking call so owners can approve manually.
@@ -601,24 +611,38 @@ class BookingViewSet(viewsets.GenericViewSet):
         if not booking.payment_id:
             return Response({'error': 'Cannot dispute booking without payment'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # LOGIC-06: Validate that the booking is in a disputable state
+        disputable_statuses = ['CONFIRMED', 'ACTIVE', 'COMPLETED']
+        if booking.status not in disputable_statuses:
+            return Response(
+                {'error': f'Cannot dispute a booking with status {booking.status}. Must be one of: {disputable_statuses}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # SEC-13: Handle pre-existing dispute cleanly instead of racing get_or_create
+        existing_dispute = Dispute.objects.filter(booking=booking).first()
+        if existing_dispute:
+            return Response(
+                {'error': 'A dispute already exists for this booking.', 'dispute_id': str(existing_dispute.id)},
+                status=status.HTTP_409_CONFLICT
+            )
+
         reason = request.data.get('reason', 'OTHER')
         description = request.data.get('description', '')
         disputed_amount = request.data.get('disputed_amount') or booking.total_price
 
-        dispute, _ = Dispute.objects.get_or_create(
-            booking=booking,
-            payment=booking.payment,
-            defaults={
-                'initiated_by': request.user,
-                'reason': reason,
-                'description': description or 'Dispute opened',
-                'disputed_amount': disputed_amount,
-            }
-        )
-
-        booking.payment.freeze_for_dispute()
-        if booking.status != 'DISPUTED':
-            booking.transition_to('DISPUTED', actor_type='USER', actor_id=request.user.id, reason='Dispute raised')
+        with transaction.atomic():
+            dispute = Dispute.objects.create(
+                booking=booking,
+                payment=booking.payment,
+                initiated_by=request.user,
+                reason=reason,
+                description=description or 'Dispute opened',
+                disputed_amount=disputed_amount,
+            )
+            booking.payment.freeze_for_dispute()
+            if booking.status != 'DISPUTED':
+                booking.transition_to('DISPUTED', actor_type='USER', actor_id=request.user.id, reason='Dispute raised')
 
         return Response(BookingResponseSerializer(booking).data, status=status.HTTP_200_OK)
     
@@ -660,7 +684,7 @@ class VenueQuoteViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing venue quotes.
     """
-    queryset = VenueQuote.objects.all()
+    queryset = VenueQuote.objects.all().select_related('venue', 'requester')
     serializer_class = VenueQuoteSerializer
     permission_classes = [IsAuthenticated]
 
@@ -671,3 +695,17 @@ class VenueQuoteViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(requester=self.request.user)
+
+    def perform_update(self, serializer):
+        # SEC-12: Only the requester or staff can update a venue quote
+        if serializer.instance.requester != self.request.user and not self.request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('You do not have permission to update this venue quote.')
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        # SEC-12: Only the requester or staff can delete a venue quote
+        if instance.requester != self.request.user and not self.request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('You do not have permission to delete this venue quote.')
+        instance.delete()

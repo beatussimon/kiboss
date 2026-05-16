@@ -80,10 +80,11 @@ class AssetPricingSerializer(serializers.ModelSerializer):
 
 class AssetAvailabilitySerializer(serializers.ModelSerializer):
     """Serializer for asset availability rules."""
-    
+
     available_from = serializers.TimeField(required=False, allow_null=True)
     available_to = serializers.TimeField(required=False, allow_null=True)
-    
+    days_of_week = serializers.ListField(child=serializers.IntegerField(), required=False, allow_null=True)
+
     class Meta:
         model = AssetAvailability
         fields = [
@@ -95,7 +96,6 @@ class AssetAvailabilitySerializer(serializers.ModelSerializer):
             'is_active', 'created_at'
         ]
         read_only_fields = ['id', 'created_at']
-
 
 class AssetSummarySerializer(serializers.ModelSerializer):
     """Summary serializer for assets (used in bookings)."""

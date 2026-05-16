@@ -170,21 +170,24 @@ class EngagementView(viewsets.ViewSet):
         like_count = Like.objects.filter(entity_type=entity_type, entity_id=entity_id).count()
         bookmark_count = Bookmark.objects.filter(entity_type=entity_type, entity_id=entity_id).count()
         
-        # For follower count, get the owner's follower count
-        follower_count = 0
+        # Fetch entity once
+        entity = None
         if entity_type == 'ASSET':
             try:
-                asset = Asset.objects.get(id=entity_id)
-                follower_count = Follow.objects.filter(following=asset.owner).count()
+                entity = Asset.objects.get(id=entity_id)
             except Asset.DoesNotExist:
                 pass
         elif entity_type == 'RIDE':
             from kiboss.apps.rides.models import Ride
             try:
-                ride = Ride.objects.get(id=entity_id)
-                follower_count = Follow.objects.filter(following=ride.driver).count()
+                entity = Ride.objects.get(id=entity_id)
             except Ride.DoesNotExist:
                 pass
+
+        follower_count = 0
+        if entity:
+            owner = entity.owner if entity_type == 'ASSET' else entity.driver
+            follower_count = Follow.objects.filter(following=owner).count()
 
         is_liked = False
         is_bookmarked = False
@@ -198,23 +201,11 @@ class EngagementView(viewsets.ViewSet):
                 user=request.user, entity_type=entity_type, entity_id=entity_id
             ).exists()
             # Check if following the entity owner
-            if entity_type == 'ASSET':
-                try:
-                    asset = Asset.objects.get(id=entity_id)
-                    is_following = Follow.objects.filter(
-                        follower=request.user, following=asset.owner
-                    ).exists()
-                except Asset.DoesNotExist:
-                    pass
-            elif entity_type == 'RIDE':
-                from kiboss.apps.rides.models import Ride
-                try:
-                    ride = Ride.objects.get(id=entity_id)
-                    is_following = Follow.objects.filter(
-                        follower=request.user, following=ride.driver
-                    ).exists()
-                except Ride.DoesNotExist:
-                    pass
+            if entity:
+                owner = entity.owner if entity_type == 'ASSET' else entity.driver
+                is_following = Follow.objects.filter(
+                    follower=request.user, following=owner
+                ).exists()
 
         data = {
             'like_count': like_count,

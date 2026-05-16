@@ -233,7 +233,7 @@ class Command(BaseCommand):
                 if random.random() > 0.8:
                     PromotedListing.objects.create(
                         asset=asset,
-                        promotion_type='HOMEPAGE_FEATURED',
+                        promotion_type='SPONSORED',
                         starts_at=timezone.now(),
                         ends_at=timezone.now() + timedelta(days=7),
                         is_active=True

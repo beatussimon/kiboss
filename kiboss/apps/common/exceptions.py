@@ -34,10 +34,6 @@ def custom_exception_handler(exc, context):
             }
         }
         
-        # Add validation errors if present
-        if hasattr(exc, 'detail') and isinstance(exc.detail, dict):
-            error_data['error']['details'] = exc.detail
-        
         response.data = error_data
     
     return response

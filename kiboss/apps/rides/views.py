@@ -940,6 +940,13 @@ class SeatBookingViewSet(viewsets.ModelViewSet):
             
         reason = request.data.get('reason', '')
         booking.cancel(reason=reason)
+
+        try:
+            from kiboss.apps.notifications.services import NotificationService
+            NotificationService.notify_seat_booking_updated(booking)
+        except Exception:
+            pass
+
         serializer = self.get_serializer(booking)
         return Response(serializer.data)
 
@@ -990,7 +997,7 @@ class RideScheduleViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing ride schedules.
     """
-    queryset = RideSchedule.objects.all().order_by('-created_at')
+    queryset = RideSchedule.objects.all().select_related('driver').order_by('-created_at')
     serializer_class = RideScheduleSerializer
     permission_classes = [permissions.IsAuthenticated]
     

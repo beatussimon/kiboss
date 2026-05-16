@@ -102,42 +102,44 @@ class Asset(models.Model):
     )
     
     # Basic information
-    name = models.CharField(max_length=255)
+    name = models.CharField(max_length=255, db_index=True)
     description = models.TextField(blank=True)
     asset_type = models.CharField(
         max_length=20,
         choices=AssetType.choices,
-        default=AssetType.ROOM
+        default=AssetType.ROOM,
+        db_index=True
     )
-    
+
     # Ownership
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='assets'
     )
-    
+
     # Corporate Flag
     is_corporate = models.BooleanField(default=False)
-    
+
     # Location
     address = models.TextField(blank=True)
-    city = models.CharField(max_length=100, blank=True)
+    city = models.CharField(max_length=100, blank=True, db_index=True)
     state = models.CharField(max_length=100, blank=True)
     country = models.CharField(max_length=100, default='Tanzania', blank=True)
     postal_code = models.CharField(max_length=20, blank=True)
     latitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
     longitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
-    
+
     # Jurisdiction (for legal compliance)
     jurisdiction = models.CharField(max_length=100, default='TZ')
     timezone = models.CharField(max_length=50, default='Africa/Dar_es_Salaam')
-    
+
     # Verification
     verification_status = models.CharField(
         max_length=20,
         choices=VerificationStatus.choices,
-        default=VerificationStatus.UNVERIFIED
+        default=VerificationStatus.UNVERIFIED,
+        db_index=True
     )
     verification_notes = models.TextField(blank=True)
     verified_at = models.DateTimeField(blank=True, null=True)
@@ -153,6 +155,10 @@ class Asset(models.Model):
     is_active = models.BooleanField(default=True)
     is_listed = models.BooleanField(default=True)
     instant_book = models.BooleanField(default=True, help_text='If False, owner must approve before payment')
+    
+    # Performance Denormalization
+    is_promoted = models.BooleanField(default=False)
+    visibility_boost = models.DecimalField(max_digits=4, decimal_places=2, default=Decimal('1.00'))
     
     # Statistics
     total_bookings = models.IntegerField(default=0)
@@ -178,6 +184,8 @@ class Asset(models.Model):
             models.Index(fields=['verification_status']),
             models.Index(fields=['average_rating']),
             models.Index(fields=['country', 'city']),
+            models.Index(fields=['is_promoted']),
+            models.Index(fields=['-visibility_boost']),
         ]
     
     def __str__(self):
@@ -252,6 +260,26 @@ class Asset(models.Model):
                 raise ValidationError({'properties': f"Missing required properties for {self.get_asset_type_display()}: {', '.join(missing_fields)}"})
 
     def save(self, *args, update_fields=None, **kwargs):
+        # Compute denormalized fields
+        if hasattr(self, 'owner') and self.owner:
+            self.visibility_boost = Decimal(str(self.owner.visibility_boost))
+            
+        # Check active promotions
+        from django.utils import timezone
+        now = timezone.now()
+        # Since this runs on save, we check if there are any active promotions in DB
+        # But wait, self.promotions isn't available on creation if no PK.
+        if self.pk:
+            self.is_promoted = self.promotions.filter(
+                is_active=True,
+                starts_at__lte=now,
+                ends_at__gte=now
+            ).exists()
+            
+        if update_fields is not None:
+            update_fields = set(update_fields)
+            update_fields.update(['visibility_boost', 'is_promoted'])
+            
         material_fields = {'name', 'address', 'city', 'country', 'asset_type', 'properties'}
         if update_fields is None or material_fields.intersection(set(update_fields)):
             self.clean()
@@ -561,9 +589,9 @@ class AssetAvailability(models.Model):
             conflict = Booking.objects.filter(
                 asset=self.asset,
                 status__in=['PENDING','CONFIRMED','ACTIVE'],
-                end_time__gt=start_time - buffer,
-                start_time__lt=end_time + buffer
-            ).exclude(start_time__gte=end_time, end_time__lte=start_time).exists()
+                start_time__lt=end_time + buffer,
+                end_time__gt=start_time - buffer
+            ).exists()
             if conflict:
                 return False, f"Booking requires {self.buffer_minutes} minute buffer between bookings"
         return True, None
@@ -763,15 +791,14 @@ class AssetLike(models.Model):
 
 
 PROMOTION_PRICES = {
-    'HOMEPAGE_FEATURED': {'7_days': 15000, '14_days': 25000, '30_days': 45000},
-    'SEARCH_BOOST': {'7_days': 8000, '14_days': 14000, '30_days': 24000},
+    '1_day': 1000,
+    '7_days': 5000,
+    '30_days': 25000,
 }
 
 class PromotedListing(models.Model):
     class PromotionType(models.TextChoices):
-        HOMEPAGE_FEATURED = 'HOMEPAGE_FEATURED', 'Homepage Featured'
-        SEARCH_BOOST = 'SEARCH_BOOST', 'Search Result Boost'
-        CATEGORY_TOP = 'CATEGORY_TOP', 'Category Top Placement'
+        SPONSORED = 'SPONSORED', 'Sponsored Listing'
     
     asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name='promotions')
     promotion_type = models.CharField(max_length=30, choices=PromotionType.choices)

@@ -33,7 +33,6 @@ class ContractDetailSerializer(serializers.ModelSerializer):
             'cancellation_policy', 'late_return_policy', 'damage_policy',
             'owner_signature', 'renter_signature',
             'owner_accepted_at', 'renter_accepted_at',
-            'accepted_at', 'signed_by',
             'admin_override', 'admin_override_reason',
             'generated_at', 'updated_at'
         ]

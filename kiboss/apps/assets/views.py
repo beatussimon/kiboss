@@ -621,6 +621,8 @@ class AssetPhotoViewSet(viewsets.ModelViewSet):
         asset_id = self.request.query_params.get('asset')
         if asset_id:
             queryset = queryset.filter(asset_id=asset_id)
+        elif not self.request.user.is_staff:
+            queryset = queryset.filter(asset__owner=self.request.user)
         return queryset
 
 
@@ -635,6 +637,9 @@ class AssetPricingViewSet(viewsets.ModelViewSet):
         asset_id = self.request.query_params.get('asset')
         if asset_id:
             queryset = queryset.filter(asset_id=asset_id)
+        elif not self.request.user.is_staff:
+            queryset = queryset.filter(asset__owner=self.request.user)
+
         is_active = self.request.query_params.get('is_active')
         if is_active is not None:
             queryset = queryset.filter(is_active=is_active.lower() == 'true')
@@ -652,6 +657,9 @@ class AssetAvailabilityViewSet(viewsets.ModelViewSet):
         asset_id = self.request.query_params.get('asset')
         if asset_id:
             queryset = queryset.filter(asset_id=asset_id)
+        elif not self.request.user.is_staff:
+            queryset = queryset.filter(asset__owner=self.request.user)
+
         is_active = self.request.query_params.get('is_active')
         if is_active is not None:
             queryset = queryset.filter(is_active=is_active.lower() == 'true')
@@ -675,10 +683,6 @@ class PromotedListingViewSet(viewsets.ModelViewSet):
             starts_at__lte=now,
             ends_at__gte=now
         ).select_related('asset').prefetch_related('asset__photos', 'asset__pricing_rules')
-        
-        promo_type = self.request.query_params.get('type')
-        if promo_type:
-            queryset = queryset.filter(promotion_type=promo_type)
         return queryset
 
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
@@ -698,8 +702,8 @@ class PromotedListingViewSet(viewsets.ModelViewSet):
         StaffTask.objects.create(
             title=f"Promotion Request: {promotion.asset.name}",
             description=(
-                f"User {self.request.user.email} submitted a promotion request "
-                f"for '{promotion.asset.name}'. Type: {promotion.promotion_type}. "
+                f"User {self.request.user.email} submitted a sponsored listing request "
+                f"for '{promotion.asset.name}'. "
                 f"Amount paid: {promotion.amount_paid}. Ref: {promotion.payment_reference}."
             ),
             task_type=TaskType.CUSTOM_TASK,
