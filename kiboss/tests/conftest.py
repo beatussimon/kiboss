@@ -144,6 +144,9 @@ def test_asset(db, test_user):
         is_active=True,
         is_listed=True,
         properties={
+            'room_type': 'DELUXE',
+            'floor': 1,
+            'max_guests': 2,
             'bedrooms': 2,
             'bathrooms': 1,
             'sqft': 1000
@@ -227,7 +230,12 @@ def multiple_assets(db, test_user):
             country='US',
             verification_status=VerificationStatus.VERIFIED,
             is_active=True,
-            is_listed=True
+            is_listed=True,
+            properties={
+                'room_type': 'STANDARD',
+                'floor': i + 1,
+                'max_guests': 2
+            }
         )
         assets.append(asset)
     return assets
@@ -412,6 +420,9 @@ def sample_asset_data(test_user):
         'country': 'US',
         'postal_code': '54321',
         'properties': {
+            'room_type': 'STANDARD',
+            'floor': 1,
+            'max_guests': 2,
             'bedrooms': 3,
             'bathrooms': 2
         }
@@ -469,5 +480,10 @@ def unverified_asset(db, test_user):
         owner=test_user,
         verification_status=VerificationStatus.UNVERIFIED,
         is_active=True,
-        is_listed=True
+        is_listed=True,
+        properties={
+            'room_type': 'STANDARD',
+            'floor': 1,
+            'max_guests': 2
+        }
     )

@@ -30,7 +30,6 @@ class AssetType(models.TextChoices):
     ROOM = 'ROOM', 'Room/Space'
     TOOL = 'TOOL', 'Tool/Equipment'
     VEHICLE = 'VEHICLE', 'Vehicle'
-    SEAT_SERVICE = 'SEAT_SERVICE', 'Seat Service (Ride-sharing)'
     TIME_SERVICE = 'TIME_SERVICE', 'Time-based Service'
     
     # Corporate Hospitality
@@ -65,12 +64,68 @@ class AssetType(models.TextChoices):
     STORAGE_UNIT = 'STORAGE_UNIT', 'Storage Unit'
     BOAT = 'BOAT', 'Boat / Watercraft'
     BICYCLE = 'BICYCLE', 'Bicycle / E-bike'
+    TOW_TRUCK = 'TOW_TRUCK', 'Tow Truck / Breakdown Vehicle'
     
     # Specialized Equipment
     SPORTS_EQUIPMENT = 'SPORTS_EQUIPMENT', 'Sports Equipment'
     GENERATOR = 'GENERATOR', 'Generator'
     MUSICAL_INSTRUMENT = 'MUSICAL_INSTRUMENT', 'Musical Instrument'
     CAMERA_EQUIPMENT = 'CAMERA_EQUIPMENT', 'Camera Equipment'
+
+
+CATEGORY_DOCUMENT_REQUIREMENTS = {
+    AssetType.VEHICLE: ['REGISTRATION', 'INSURANCE', 'OWNERSHIP'],
+    AssetType.TOW_TRUCK: ['REGISTRATION', 'INSURANCE', 'OWNERSHIP'],
+    AssetType.BOAT: ['REGISTRATION', 'INSURANCE', 'OWNERSHIP'],
+    AssetType.HOTEL: ['BUSINESS_LICENSE', 'TOURISM_LICENSE', 'FIRE_SAFETY_CERTIFICATE', 'PUBLIC_LIABILITY_INSURANCE'],
+    AssetType.RESTAURANT: ['BUSINESS_LICENSE', 'HEALTH_CERTIFICATE', 'FIRE_SAFETY_CERTIFICATE', 'FOOD_HANDLING_CERT'],
+    AssetType.EVENT_VENUE: ['BUSINESS_LICENSE', 'FIRE_SAFETY_CERTIFICATE', 'PUBLIC_LIABILITY_INSURANCE'],
+    AssetType.BANQUET_HALL: ['BUSINESS_LICENSE', 'FIRE_SAFETY_CERTIFICATE', 'PUBLIC_LIABILITY_INSURANCE'],
+    AssetType.GENERATOR: ['OWNERSHIP'],
+}
+
+CATEGORY_DEFAULT_PRICING = {
+    # Hourly categories
+    AssetType.MEETING_ROOM: 'HOUR',
+    AssetType.HOT_DESK: 'HOUR',
+    AssetType.RECORDING_STUDIO: 'HOUR',
+    AssetType.PHOTO_STUDIO: 'HOUR',
+    AssetType.DANCE_STUDIO: 'HOUR',
+    AssetType.PODCAST_STUDIO: 'HOUR',
+    AssetType.ART_STUDIO: 'HOUR',
+    AssetType.CONFERENCE_HALL: 'HOUR',
+    AssetType.SPORTS_EQUIPMENT: 'HOUR',
+    AssetType.BOAT: 'HOUR',
+    AssetType.TIME_SERVICE: 'HOUR',
+    # Daily categories
+    AssetType.VEHICLE: 'DAY',
+    AssetType.HOTEL_ROOM: 'DAY',
+    AssetType.ENTIRE_HOME: 'DAY',
+    AssetType.PRIVATE_ROOM: 'DAY',
+    AssetType.SHARED_ROOM: 'DAY',
+    AssetType.GUEST_HOUSE: 'DAY',
+    AssetType.APARTMENT: 'DAY',
+    AssetType.ROOM: 'DAY',
+    AssetType.BICYCLE: 'DAY',
+    AssetType.GENERATOR: 'DAY',
+    AssetType.CAMERA_EQUIPMENT: 'DAY',
+    AssetType.MUSICAL_INSTRUMENT: 'DAY',
+    AssetType.TOOL: 'DAY',
+    # Monthly categories
+    AssetType.OFFICE_SPACE: 'MONTH',
+    AssetType.PARKING_SPACE: 'MONTH',
+    AssetType.STORAGE_UNIT: 'MONTH',
+    # Fixed/event categories
+    AssetType.EVENT_VENUE: 'FIXED',
+    AssetType.BANQUET_HALL: 'FIXED',
+    AssetType.OUTDOOR_SPACE: 'FIXED',
+    AssetType.ROOFTOP: 'FIXED',
+    AssetType.DINING_TABLE: 'FIXED',
+    AssetType.PRIVATE_DINING_ROOM: 'FIXED',
+    AssetType.HOTEL: 'FIXED',
+    AssetType.RESTAURANT: 'FIXED',
+    AssetType.TOW_TRUCK: 'FIXED',
+}
 
 
 class VerificationStatus(models.TextChoices):
@@ -169,13 +224,14 @@ class Asset(models.Model):
     properties = models.JSONField(default=dict, blank=True)
     
     # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
         db_table = 'assets'
         verbose_name = 'Asset'
         verbose_name_plural = 'Assets'
+        ordering = ['-created_at']
         indexes = [
             models.Index(fields=['asset_type']),
             models.Index(fields=['owner']),
@@ -242,7 +298,7 @@ class Asset(models.Model):
                 raise ValidationError({'properties': "A vehicle with this strictly unique license plate already exists."})
 
         # 3. Vehicle Document Checks (Strict Reality)
-        if self.asset_type == AssetType.VEHICLE and self.verification_status == VerificationStatus.VERIFIED:
+        if self.asset_type in [AssetType.VEHICLE, AssetType.TOW_TRUCK] and self.verification_status == VerificationStatus.VERIFIED:
             if not self._state.adding:
                 existing_docs = self.documents.values_list('document_type', flat=True)
                 required_docs = ['REGISTRATION', 'INSURANCE', 'OWNERSHIP']
@@ -301,7 +357,7 @@ class AssetPhoto(models.Model):
     order = models.PositiveIntegerField(default=0)
     is_primary = models.BooleanField(default=False)
     
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     
     class Meta:
         db_table = 'asset_photos'
@@ -355,7 +411,7 @@ class AssetDocument(models.Model):
     is_verified = models.BooleanField(default=False)
     verification_notes = models.TextField(blank=True)
     
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
@@ -437,7 +493,7 @@ class AssetPricing(models.Model):
     priority = models.PositiveIntegerField(default=0)
     
     is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
@@ -534,7 +590,7 @@ class AssetAvailability(models.Model):
     exceptions = models.JSONField(default=list, blank=True)
     
     is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
@@ -711,7 +767,7 @@ class SearchImpression(models.Model):
     search_query = models.CharField(max_length=255, blank=True)
     position_in_results = models.PositiveIntegerField()
     was_clicked = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
 
 class AssetJurisdiction(models.Model):
@@ -751,7 +807,7 @@ class AssetJurisdiction(models.Model):
     compliance_notes = models.TextField(blank=True)
     
     # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
@@ -778,7 +834,7 @@ class AssetLike(models.Model):
         related_name='asset_likes'
     )
     
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     
     class Meta:
         db_table = 'asset_likes'
@@ -807,7 +863,7 @@ class PromotedListing(models.Model):
     is_active = models.BooleanField(default=False)
     payment_reference = models.CharField(max_length=100, blank=True)  # M-Pesa reference
     amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     
     class Meta:
         indexes = [models.Index(fields=['is_active', 'ends_at'])]

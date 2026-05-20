@@ -132,7 +132,7 @@ class Thread(models.Model):
     message_count = models.PositiveIntegerField(default=0)
     
     # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
@@ -207,7 +207,7 @@ class Message(models.Model):
     deleted_at = models.DateTimeField(blank=True, null=True)
     
     # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
@@ -280,7 +280,7 @@ class MessageAttachment(models.Model):
     is_safe = models.BooleanField(default=True)
     scan_error = models.TextField(blank=True)
     
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     
     class Meta:
         db_table = 'message_attachments'

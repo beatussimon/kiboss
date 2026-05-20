@@ -32,16 +32,58 @@ class PublicSettingsView(APIView):
 
 def health_check(request):
     """
-    Simple health check endpoint for monitoring.
+    Comprehensive health check endpoint for DB, Redis, and Celery.
     """
     from django.db import connections
     from django.db.utils import OperationalError
     from django.http import JsonResponse
+    from django.core.cache import cache
+    import logging
     
-    db_conn = connections['default']
+    logger = logging.getLogger(__name__)
+    
+    health_status = {
+        "status": "healthy",
+        "database": "healthy",
+        "redis": "healthy",
+        "celery": "healthy"
+    }
+    status_code = 200
+
+    # 1. Check Database
     try:
+        db_conn = connections['default']
         db_conn.cursor()
-    except OperationalError:
-        return JsonResponse({"status": "unhealthy", "database": "unavailable"}, status=503)
-    
-    return JsonResponse({"status": "healthy"})
+    except Exception as e:
+        logger.error(f"DB Health Check failed: {e}")
+        health_status["database"] = "unhealthy"
+        health_status["status"] = "unhealthy"
+        status_code = 503
+        
+    # 2. Check Redis (Cache)
+    try:
+        cache.set('health_check', 'ok', timeout=1)
+        if cache.get('health_check') != 'ok':
+            raise Exception("Cache retrieval mismatch")
+    except Exception as e:
+        logger.error(f"Redis Health Check failed: {e}")
+        health_status["redis"] = "unhealthy"
+        health_status["status"] = "unhealthy"
+        status_code = 503
+            
+    # 3. Check Celery Workers
+    try:
+        from kiboss.celery import app as celery_app
+        inspector = celery_app.control.inspect(timeout=0.5)
+        stats = inspector.stats()
+        if not stats:
+            health_status["celery"] = "unavailable"
+            if health_status["status"] == "healthy":
+                health_status["status"] = "degraded"
+    except Exception as e:
+        logger.error(f"Celery Health Check failed: {e}")
+        health_status["celery"] = "unhealthy"
+        if health_status["status"] == "healthy":
+            health_status["status"] = "degraded"
+        
+    return JsonResponse(health_status, status=status_code)

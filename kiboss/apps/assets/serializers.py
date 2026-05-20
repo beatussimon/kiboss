@@ -140,6 +140,7 @@ class AssetListSerializer(serializers.ModelSerializer):
     photos = AssetPhotoSerializer(many=True, read_only=True)
     pricing_rules = AssetPricingSerializer(many=True, read_only=True)
     is_promoted = serializers.SerializerMethodField()
+    promotion_status = serializers.SerializerMethodField()
     
     class Meta:
         model = Asset
@@ -148,7 +149,7 @@ class AssetListSerializer(serializers.ModelSerializer):
             'owner', 'owner_email', 'owner_verification_badge',
             'city', 'state', 'country',
             'verification_status', 'verification_status_display', 'is_verified',
-            'is_active', 'is_listed', 'is_promoted',
+            'is_active', 'is_listed', 'is_promoted', 'promotion_status',
             'average_rating', 'total_reviews',
             'properties', 'photos', 'pricing_rules',
             'created_at', 'updated_at'
@@ -168,6 +169,21 @@ class AssetListSerializer(serializers.ModelSerializer):
             starts_at__lte=now,
             ends_at__gte=now
         ).exists()
+
+    def get_promotion_status(self, obj):
+        from django.utils import timezone
+        from kiboss.apps.assets.models import PromotedListing
+        now = timezone.now()
+        
+        # Check active
+        if PromotedListing.objects.filter(asset=obj, is_active=True, starts_at__lte=now, ends_at__gte=now).exists():
+            return 'ACTIVE'
+            
+        # Check pending
+        if PromotedListing.objects.filter(asset=obj, is_active=False).exists():
+            return 'PENDING'
+            
+        return 'NONE'
         
     def get_owner(self, obj):
         from kiboss.apps.users.serializers import PublicUserSerializer
@@ -191,6 +207,7 @@ class AssetDetailSerializer(serializers.ModelSerializer):
     owner_email = serializers.EmailField(source='owner.email', read_only=True)
     owner = serializers.SerializerMethodField()
     photos = AssetPhotoSerializer(many=True, read_only=True)
+    documents = AssetDocumentSerializer(many=True, read_only=True)
     pricing_rules = AssetPricingSerializer(many=True, read_only=True)
     availability_rules = AssetAvailabilitySerializer(many=True, read_only=True)
     capacities = AssetCapacitySerializer(many=True, read_only=True)
@@ -200,6 +217,8 @@ class AssetDetailSerializer(serializers.ModelSerializer):
     )
     is_verified = serializers.SerializerMethodField()
     is_promoted = serializers.SerializerMethodField()
+    promotion_status = serializers.SerializerMethodField()
+    promotions = PromotedListingSerializer(many=True, read_only=True)
     
     class Meta:
         model = Asset
@@ -211,10 +230,10 @@ class AssetDetailSerializer(serializers.ModelSerializer):
             'jurisdiction', 'timezone',
             'verification_status', 'verification_status_display', 'is_verified',
             'verification_notes', 'verified_at',
-            'is_active', 'is_listed', 'is_promoted',
+            'is_active', 'is_listed', 'is_promoted', 'promotion_status', 'promotions',
             'average_rating', 'total_reviews',
             'properties',
-            'photos', 'pricing_rules', 'availability_rules',
+            'photos', 'documents', 'pricing_rules', 'availability_rules',
             'capacities', 'time_granularity',
             'created_at', 'updated_at'
         ]
@@ -233,6 +252,21 @@ class AssetDetailSerializer(serializers.ModelSerializer):
             starts_at__lte=now,
             ends_at__gte=now
         ).exists()
+
+    def get_promotion_status(self, obj):
+        from django.utils import timezone
+        from kiboss.apps.assets.models import PromotedListing
+        now = timezone.now()
+        
+        # Check active
+        if PromotedListing.objects.filter(asset=obj, is_active=True, starts_at__lte=now, ends_at__gte=now).exists():
+            return 'ACTIVE'
+            
+        # Check pending
+        if PromotedListing.objects.filter(asset=obj, is_active=False).exists():
+            return 'PENDING'
+            
+        return 'NONE'
         
     def get_owner(self, obj):
         from kiboss.apps.users.serializers import PublicUserSerializer
@@ -335,6 +369,28 @@ class AssetSerializer(serializers.ModelSerializer):
             starts_at__lte=now,
             ends_at__gte=now
         ).exists()
+
+    def validate(self, attrs):
+        """
+        Call model clean() to enforce business logic before saving.
+        Translates Django ValidationError to DRF ValidationError.
+        """
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        
+        # Create a dummy instance to run clean()
+        # This is needed because some clean() logic depends on instance state
+        instance = Asset(**attrs)
+        
+        # If updating, copy the ID so uniqueness checks work correctly
+        if self.instance:
+            instance.pk = self.instance.pk
+            
+        try:
+            instance.clean()
+        except DjangoValidationError as e:
+            raise serializers.ValidationError(e.message_dict if hasattr(e, 'message_dict') else e.messages)
+            
+        return attrs
 
     def create(self, validated_data):
         pricing_rules_data = validated_data.pop('pricing_rules', [])

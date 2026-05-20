@@ -689,9 +689,10 @@ class VenueQuoteViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        queryset = VenueQuote.objects.select_related('venue', 'requester')
         if self.request.user.is_staff:
-            return VenueQuote.objects.all()
-        return VenueQuote.objects.filter(requester=self.request.user)
+            return queryset.all()
+        return queryset.filter(requester=self.request.user)
 
     def perform_create(self, serializer):
         serializer.save(requester=self.request.user)

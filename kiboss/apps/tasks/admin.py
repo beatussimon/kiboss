@@ -14,7 +14,7 @@ class StaffTaskAdmin(admin.ModelAdmin):
     
     list_display = [
         'id', 'title', 'task_type', 'assigned_to', 
-        'status_badge', 'priority_badge', 'created_at'
+        'status_badge', 'priority_badge', 'object_link', 'created_at'
     ]
     list_display_links = ['id', 'title']
     
@@ -32,7 +32,19 @@ class StaffTaskAdmin(admin.ModelAdmin):
     list_per_page = 25
     list_max_show_all = 500
     
-    readonly_fields = ['id', 'created_at', 'updated_at']
+    readonly_fields = ['id', 'object_link', 'created_at', 'updated_at']
+
+    def object_link(self, obj):
+        if obj.content_type and obj.object_id:
+            from django.urls import reverse
+            from django.utils.html import format_html
+            try:
+                url = reverse(f'admin:{obj.content_type.app_label}_{obj.content_type.model}_change', args=[obj.object_id])
+                return format_html('<a href="{}">View {}</a>', url, obj.content_type.model.title())
+            except Exception:
+                return f"{obj.content_type.model}: {obj.object_id}"
+        return "-"
+    object_link.short_description = 'Linked Object'
     
     fieldsets = (
         ('Task Details', {

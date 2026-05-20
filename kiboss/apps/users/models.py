@@ -172,7 +172,7 @@ class User(AbstractUser):
     block_reason = models.TextField(blank=True, null=True)
     
     # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     last_login_at = models.DateTimeField(blank=True, null=True)
     
@@ -200,12 +200,15 @@ class User(AbstractUser):
         """
         Update trust score based on new rating.
         Uses weighted average with decay factor.
+        Rating is expected to be on a 1-5 scale, so we multiply by 20 to map to 0-100.
         """
+        scaled_rating = Decimal(str(new_rating)) * Decimal('20.00')
+        
         if self.total_ratings_count == 0:
-            self.trust_score = Decimal(str(new_rating))
+            self.trust_score = scaled_rating
         else:
             # Weighted average: 70% old score, 30% new rating
-            self.trust_score = (self.trust_score * Decimal('0.7')) + (Decimal(str(new_rating)) * Decimal('0.3'))
+            self.trust_score = (self.trust_score * Decimal('0.7')) + (scaled_rating * Decimal('0.3'))
         
         self.total_ratings_count += 1
         self.save(update_fields=['trust_score', 'total_ratings_count', 'updated_at'])
@@ -365,7 +368,7 @@ class UserProfile(models.Model):
     identity_document = models.FileField(upload_to='identity/', blank=True, null=True, validators=[validate_file_size, validate_document_extension])
     
     # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     objects = UserProfileManager()
@@ -534,7 +537,7 @@ class Device(models.Model):
     is_active = models.BooleanField(default=True)
     last_active_at = models.DateTimeField(default=timezone.now)
     
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
@@ -566,7 +569,7 @@ class BlacklistedToken(models.Model):
     )
     reason = models.CharField(max_length=100, default='logout')
     expires_at = models.DateTimeField()
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     
     class Meta:
         db_table = 'blacklisted_tokens'
@@ -632,7 +635,7 @@ class CorporateProfile(models.Model):
         default=Status.PENDING
     )
     
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -682,7 +685,7 @@ class BusinessSubscription(models.Model):
     payment_reference = models.CharField(max_length=100, blank=True)
     payment_proof_url = models.URLField(blank=True, help_text="Direct URL to receipt if uploaded manually")
     
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -759,7 +762,7 @@ class CorporateWorker(models.Model):
     accepted_at = models.DateTimeField(null=True, blank=True)
     deactivated_at = models.DateTimeField(null=True, blank=True)
 
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -810,7 +813,7 @@ class UserSubscription(models.Model):
     start_date = models.DateTimeField(default=timezone.now)
     end_date = models.DateTimeField(blank=True, null=True)
     
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

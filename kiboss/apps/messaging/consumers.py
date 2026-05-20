@@ -3,15 +3,22 @@ import logging
 logger = logging.getLogger(__name__)
 
 import json
+import asyncio
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.core.exceptions import ObjectDoesNotExist
 
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        self.user = self.scope["user"]
-        if self.user.is_anonymous:
-            await self.close()
+        # Accept the connection FIRST so the handshake completes
+        await self.accept()
+        logger.debug("DEBUG: ChatConsumer connection accepted")
+
+        self.user = self.scope.get("user")
+        if not self.user or self.user.is_anonymous:
+            logger.debug("DEBUG: ChatConsumer rejecting anonymous user")
+            await self.send(text_data=json.dumps({'error': 'Authentication required'}))
+            # DO NOT close the socket here. Let the frontend close it to prevent TCP RST 1006 error.
             return
 
         self.thread_id = self.scope['url_route']['kwargs']['thread_id']
@@ -29,8 +36,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
             self.channel_name
         )
 
-        await self.accept()
-
     async def disconnect(self, close_code):
         # Leave room group
         if hasattr(self, 'room_group_name'):
@@ -41,7 +46,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     # Receive message from WebSocket
     async def receive(self, text_data):
-        text_data_json = json.loads(text_data)
+        try:
+            text_data_json = json.loads(text_data)
+        except json.JSONDecodeError:
+            await self.send(text_data=json.dumps({'error': 'Invalid JSON format'}))
+            return
+            
         message_type = text_data_json.get('type')
 
         if message_type == 'typing':

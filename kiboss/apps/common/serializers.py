@@ -15,9 +15,18 @@ class FeedbackSerializer(serializers.ModelSerializer):
         model = Feedback
         fields = [
             'id', 'category', 'subject', 'message', 
-            'is_resolved', 'created_at', 'user_email'
+            'is_resolved', 'resolution_notes', 'created_at', 'user_email'
         ]
-        read_only_fields = ['id', 'created_at', 'is_resolved']
+        read_only_fields = ['id', 'created_at']
+
+    def validate_is_resolved(self, value):
+        """Only staff can mark feedback as resolved/unresolved."""
+        request = self.context.get('request')
+        if request and self.instance:
+            if not (request.user.is_staff or request.user.is_superuser):
+                if self.instance.is_resolved != value:
+                    raise serializers.ValidationError("Only staff can change the resolution status.")
+        return value
 
     def create(self, validated_data):
         validated_data['user'] = self.context['request'].user

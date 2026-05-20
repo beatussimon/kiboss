@@ -50,6 +50,13 @@ class Rating(models.Model):
         null=True,
         related_name='ratings'
     )
+    cargo_ride = models.ForeignKey(
+        'rides.CargoBooking',
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+        related_name='ratings'
+    )
     reviewer = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -121,19 +128,23 @@ class Rating(models.Model):
     
     # Metadata
     metadata = models.JSONField(default=dict, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
         db_table = 'ratings'
         unique_together = [
             ['booking', 'reviewer'],   # One review per user per booking
-            ['ride', 'reviewer'],       # One review per user per ride
+            ['ride', 'reviewer'],      # One review per user per seat ride
+            ['cargo_ride', 'reviewer'], # One review per user per cargo ride
         ]
         constraints = [
             models.CheckConstraint(
-                condition=models.Q(booking__isnull=False, ride__isnull=True) |
-                          models.Q(booking__isnull=True, ride__isnull=False),
+                condition=(
+                    models.Q(booking__isnull=False, ride__isnull=True, cargo_ride__isnull=True) |
+                    models.Q(booking__isnull=True, ride__isnull=False, cargo_ride__isnull=True) |
+                    models.Q(booking__isnull=True, ride__isnull=True, cargo_ride__isnull=False)
+                ),
                 name='rating_exactly_one_source'
             )
         ]
@@ -151,6 +162,14 @@ class Rating(models.Model):
             # Ride booking must be COMPLETED
             if self.ride.status != 'COMPLETED':
                 raise ValidationError({'ride': "Reviews can only be left for rides that have been COMPLETED."})
+        
+        if self.cargo_ride:
+            # Reviewer must be the sender on this cargo booking
+            if self.cargo_ride.sender != self.reviewer:
+                raise ValidationError({'reviewer': "Only the actual sender of this cargo can leave a review."})
+            # Cargo booking must be COMPLETED
+            if self.cargo_ride.status != 'COMPLETED':
+                raise ValidationError({'cargo_ride': "Reviews can only be left for cargo shipments that have been COMPLETED."})
     
     def reveal_mutually(self):
         """Reveal ratings to each other."""

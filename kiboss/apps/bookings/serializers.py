@@ -141,7 +141,9 @@ class BookingResponseSerializer(serializers.ModelSerializer):
 
     def get_has_pending_manual_payment(self, obj):
         from kiboss.apps.payments.models import ManualPayment
-        return ManualPayment.objects.filter(booking_id=obj.id, booking_type='ASSET', status='PENDING').exists()
+        from django.contrib.contenttypes.models import ContentType
+        ctype = ContentType.objects.get_for_model(obj)
+        return ManualPayment.objects.filter(object_id=obj.id, content_type=ctype, status='PENDING').exists()
 
 
 class BookingListResponseSerializer(serializers.ModelSerializer):

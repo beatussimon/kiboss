@@ -32,7 +32,12 @@ class TestAssetModel:
             asset_type=AssetType.ROOM,
             owner=test_user,
             city='Test City',
-            country='US'
+            country='US',
+            properties={
+                'room_type': 'DELUXE',
+                'floor': 1,
+                'max_guests': 2
+            }
         )
         assert asset.name == 'Test Room'
         assert asset.asset_type == AssetType.ROOM
@@ -77,7 +82,12 @@ class TestAssetModel:
             asset_type=AssetType.ROOM,
             owner=test_user,
             average_rating=Decimal('4.00'),
-            total_reviews=10
+            total_reviews=10,
+            properties={
+                'room_type': 'DELUXE',
+                'floor': 1,
+                'max_guests': 2
+            }
         )
         
         # Simulate new review

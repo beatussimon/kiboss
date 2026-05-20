@@ -439,7 +439,7 @@ class RegisterView(APIView):
         verification.generate_code()
         
         from kiboss.apps.users.tasks import send_verification_email
-        send_verification_email.delay(user.email, verification.code)
+        send_verification_email.delay(user.email, verification.verification_code)
         
         serializer = UserWithProfileSerializer(user)
         # SEC-04: Return identical shape for both registered and new users
@@ -805,6 +805,7 @@ class CurrentUserAnalyticsView(APIView):
         top_listings = []
         cancellation_rate = 0.0
         overall_rating = 0.0
+        audience_insights = {}
 
         if user.account_tier in ['PLUS', 'BUSINESS']:
             # Revenue Trend (Last 6 Months)

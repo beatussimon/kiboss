@@ -190,13 +190,14 @@ class UserSerializer(UserCountsMixin, serializers.ModelSerializer):
     total_rides = serializers.SerializerMethodField()
     total_reviews = serializers.SerializerMethodField()
     has_verified_vehicle = serializers.SerializerMethodField()
+    rating = serializers.SerializerMethodField()
     
     class Meta:
         model = User
         fields = [
             'id', 'email', 'first_name', 'last_name',
             'is_email_verified', 'is_phone_verified', 'is_identity_verified',
-            'trust_score', 'total_ratings_count', 'is_blocked',
+            'trust_score', 'total_ratings_count', 'rating', 'is_blocked',
             'account_tier', 'verification_tier', 'verification_badge', 'checkmark_data',
             'is_staff', 'is_superuser',
             'profile', 'corporate_profile', 'roles', 'permissions',
@@ -205,10 +206,15 @@ class UserSerializer(UserCountsMixin, serializers.ModelSerializer):
         ]
         read_only_fields = [
             'id', 'is_email_verified', 'is_phone_verified', 'is_identity_verified', 
-            'trust_score', 'total_ratings_count', 'is_blocked', 
+            'trust_score', 'total_ratings_count', 'rating', 'is_blocked', 
             'account_tier', 'verification_badge', 'roles', 'permissions', 'is_staff', 'is_superuser', 
             'profile', 'corporate_profile', 'has_verified_vehicle'
         ]
+
+    def get_rating(self, obj):
+        if obj.total_ratings_count == 0:
+            return 0
+        return float(obj.trust_score) / 20
     
     def get_verification_badge(self, obj):
         """Get verification badge info."""

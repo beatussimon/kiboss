@@ -72,6 +72,19 @@ class StaffTaskSerializer(serializers.ModelSerializer):
         if isinstance(content_object, Feedback):
             from kiboss.apps.common.serializers import FeedbackSerializer
             return FeedbackSerializer(content_object).data
+
+        from kiboss.apps.assets.models import PromotedListing
+        if isinstance(content_object, PromotedListing):
+            return {
+                'id': str(content_object.id),
+                'asset_name': content_object.asset.name,
+                'promotion_type': content_object.promotion_type,
+                'amount_paid': float(content_object.amount_paid),
+                'payment_reference': content_object.payment_reference,
+                'starts_at': content_object.starts_at.isoformat(),
+                'ends_at': content_object.ends_at.isoformat(),
+                'user_email': content_object.asset.owner.email,
+            }
             
         # Handle other types if needed later
         return None

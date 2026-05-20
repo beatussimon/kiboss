@@ -34,7 +34,7 @@ class Like(models.Model):
     entity_type = models.CharField(max_length=20, choices=ENTITY_TYPES)
     entity_id = models.UUIDField()
     
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     
     class Meta:
         db_table = 'likes'
@@ -67,7 +67,7 @@ class Follow(models.Model):
     
     entity_type = models.CharField(max_length=20, choices=ENTITY_TYPES)
     
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     
     class Meta:
         db_table = 'follows'
@@ -95,7 +95,7 @@ class Bookmark(models.Model):
     entity_type = models.CharField(max_length=20, choices=ENTITY_TYPES)
     entity_id = models.UUIDField()
     
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     
     class Meta:
         db_table = 'bookmarks'

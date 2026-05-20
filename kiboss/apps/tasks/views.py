@@ -69,7 +69,8 @@ class StaffTaskViewSet(viewsets.ModelViewSet):
             Permission.USER_VERIFY: [TaskType.IDENTITY_VERIFICATION, TaskType.CORPORATE_RIDE_VERIFICATION, TaskType.CORPORATE_ASSET_VERIFICATION],
             Permission.ASSET_VERIFY: [TaskType.VEHICLE_VERIFICATION, TaskType.ASSET_AUDIT],
             Permission.DISPUTE_VIEW: [TaskType.DISPUTE_RESOLUTION],
-            Permission.SUPPORT_TICKET: [TaskType.SUPPORT_TICKET], 
+            Permission.SUPPORT_TICKET: [TaskType.SUPPORT_TICKET],
+            Permission.PROMOTION_MANAGE: [TaskType.PROMOTION_VERIFICATION],
         }
         
         # Staff no longer see CUSTOM_TASK by default, only if explicitly assigned to them or their role

@@ -1,7 +1,7 @@
 """
 Views for Rides API - Ride-Sharing Module
 """
-from rest_framework import viewsets, status, permissions
+from rest_framework import viewsets, status, permissions, filters
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -174,6 +174,45 @@ class VehicleRegistrationViewSet(viewsets.ModelViewSet):
             
         return Response({'status': 'Verification submitted'})
 
+    @action(detail=True, methods=['post'], url_path='upload_documents')
+    def upload_documents(self, request, pk=None):
+        """
+        Upload missing documents for an existing vehicle.
+        """
+        try:
+            asset = self.get_object()
+        except Exception:
+            return Response({'error': 'Vehicle not found'}, status=status.HTTP_404_NOT_FOUND)
+            
+        if asset.verification_status == VerificationStatus.VERIFIED:
+            return Response({'error': 'Cannot modify documents of a verified vehicle'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        files = request.FILES.getlist('documents')
+        doc_types = request.data.getlist('document_types') if hasattr(request.data, 'getlist') else []
+        
+        if not files:
+            return Response({'error': 'No documents provided'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        uploaded = []
+        with transaction.atomic():
+            for i, file in enumerate(files):
+                doc_type = doc_types[i] if i < len(doc_types) else 'OTHER'
+                
+                # Check if document type already exists and delete it to replace
+                AssetDocument.objects.filter(asset=asset, document_type=doc_type).delete()
+                
+                doc = AssetDocument.objects.create(
+                    asset=asset,
+                    document_type=doc_type,
+                    file=file,
+                    name=file.name
+                )
+                uploaded.append(doc)
+                
+        # Return updated asset with documents
+        serializer = AssetSerializer(asset, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
 
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
@@ -191,9 +230,43 @@ class RideViewSet(viewsets.ModelViewSet):
 
     Provides CRUD operations and custom actions for ride-sharing.
     """
-    queryset = Ride.objects.select_related('driver', 'vehicle_asset').order_by('departure_time')
+    queryset = Ride.objects.select_related('driver', 'vehicle_asset').order_by('-created_at')
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     pagination_class = RidePagination
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['origin', 'destination', 'route_name', 'driver__first_name', 'driver__last_name']
+
+    @action(detail=False, methods=['get'])
+    def categories(self, request):
+        """Get grouped ride categories and types."""
+        from kiboss.apps.rides.models import RideType
+        categories = [
+            {
+                'id': 'type',
+                'label': 'Ride Type',
+                'types': [
+                    {'id': RideType.PERSONAL, 'label': 'Personal Ride'},
+                    {'id': RideType.BUSINESS, 'label': 'Business Ride'},
+                    {'id': RideType.SPECIAL_HIRE, 'label': 'Special Hire (Charter)'},
+                ]
+            },
+            {
+                'id': 'purpose',
+                'label': 'Special Hire Purpose',
+                'types': [
+                    {'id': 'WEDDING', 'label': 'Wedding'},
+                    {'id': 'FUNERAL', 'label': 'Funeral/Burial'},
+                    {'id': 'SPORTS', 'label': 'Sports/Team Transport'},
+                    {'id': 'CORPORATE', 'label': 'Corporate Event'},
+                    {'id': 'SCHOOL_TRIP', 'label': 'School Trip'},
+                    {'id': 'PILGRIMAGE', 'label': 'Religious/Pilgrimage'},
+                    {'id': 'GRADUATION', 'label': 'Graduation'},
+                    {'id': 'AIRPORT_TRANSFER', 'label': 'Airport Transfer'},
+                    {'id': 'OTHER', 'label': 'Other'},
+                ]
+            }
+        ]
+        return Response(categories)
 
     def get_throttles(self):
         if self.action == 'upload_photos':
@@ -256,7 +329,7 @@ class RideViewSet(viewsets.ModelViewSet):
         # Check if user has at least one verified vehicle asset
         has_verified_vehicle = Asset.objects.filter(
             owner=user,
-            asset_type=AssetType.VEHICLE,
+            asset_type__in=[AssetType.VEHICLE, AssetType.TOW_TRUCK],
             verification_status=VerificationStatus.VERIFIED
         ).exists()
         
@@ -342,7 +415,7 @@ class RideViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         from kiboss.apps.rides.models import RideStatus
-        queryset = Ride.objects.select_related('driver', 'vehicle_asset').prefetch_related('stops').order_by('departure_time')
+        queryset = Ride.objects.select_related('driver', 'vehicle_asset').prefetch_related('stops').order_by('-created_at')
         
         # Filter by driver
         driver_id = self.request.query_params.get('driver')
@@ -399,6 +472,11 @@ class RideViewSet(viewsets.ModelViewSet):
         ride_type_param = self.request.query_params.get('ride_type')
         if ride_type_param:
             queryset = queryset.filter(ride_type=ride_type_param)
+        
+        # Filter by hire_purpose
+        hire_purpose_param = self.request.query_params.get('hire_purpose')
+        if hire_purpose_param:
+            queryset = queryset.filter(hire_purpose=hire_purpose_param)
         
         return queryset
     
@@ -796,7 +874,7 @@ class RideStopViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        queryset = RideStop.objects.all().order_by('stop_order')
+        queryset = RideStop.objects.select_related('ride').order_by('stop_order')
         
         ride_id = self.request.query_params.get('ride')
         if ride_id:
@@ -1002,7 +1080,7 @@ class RideScheduleViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        queryset = RideSchedule.objects.all().order_by('-created_at')
+        queryset = RideSchedule.objects.select_related('driver').order_by('-created_at')
         
         driver_id = self.request.query_params.get('driver')
         if driver_id:

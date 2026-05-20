@@ -77,7 +77,7 @@ class BookingStatusTransition(models.Model):
     # Metadata
     metadata = models.JSONField(default=dict, blank=True)
     
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     
     class Meta:
         db_table = 'booking_status_transitions'
@@ -229,7 +229,7 @@ class Booking(models.Model):
     metadata = models.JSONField(default=dict, blank=True)
     
     # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
@@ -291,9 +291,8 @@ class Booking(models.Model):
         if actor_type == 'ADMIN' and not justification:
             raise ValueError("Admin override requires justification")
 
-        # Validate state transition for non-admin actors
         if self.status == BookingStatus.PENDING:
-            current_transitions = [BookingStatus.CONFIRMED, BookingStatus.EXPIRED]
+            current_transitions = [BookingStatus.CONFIRMED, BookingStatus.CANCELLED, BookingStatus.EXPIRED]
         elif self.status == BookingStatus.CONFIRMED:
             current_transitions = [BookingStatus.ACTIVE, BookingStatus.EXPIRED, 
                                    BookingStatus.CANCELLED, BookingStatus.DISPUTED]
@@ -477,7 +476,7 @@ class BookingTimeline(models.Model):
     data = models.JSONField(default=dict, blank=True)
     
     # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     
     class Meta:
         db_table = 'booking_timeline'
@@ -613,7 +612,7 @@ class VenueQuote(models.Model):
     quote_valid_until = models.DateTimeField(null=True, blank=True)
     status = models.CharField(choices=[('PENDING','Pending'),('QUOTED','Quoted'),('ACCEPTED','Accepted'),('REJECTED','Rejected')], default='PENDING', max_length=50)
     notes = models.TextField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

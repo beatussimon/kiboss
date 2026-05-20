@@ -102,11 +102,12 @@ class TestAuthenticationAPI:
         # Check for access token or user data which might be wrapped
         assert 'user' in response.data or 'access' in response.data or 'detail' in response.data
     
-    def test_unauthenticated_request_denied(self, api_client, test_asset):
-        """Test that unauthenticated requests are denied."""
-        url = reverse('asset-detail', args=[test_asset.id])
+    def test_unauthenticated_request_denied(self, api_client):
+        """Test that unauthenticated protected requests are denied."""
+        url = reverse('asset-list')
+        data = {'name': 'Unauthorized Asset'}
         
-        response = api_client.get(url)
+        response = api_client.post(url, data, format='json')
         
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
@@ -157,7 +158,12 @@ class TestAssetAPI:
         url = reverse('asset-detail', args=[test_asset.id])
         data = {
             'name': 'Updated Asset Name',
-            'description': 'Updated description'
+            'description': 'Updated description',
+            'properties': {
+                'room_type': 'DELUXE',
+                'floor': 2,
+                'max_guests': 4
+            }
         }
         
         response = authenticated_client.patch(url, data, format='json')
@@ -169,7 +175,14 @@ class TestAssetAPI:
     def test_update_asset_not_owner(self, authenticated_client_second, test_asset):
         """Test that non-owners cannot update assets."""
         url = reverse('asset-detail', args=[test_asset.id])
-        data = {'name': 'Hacked Name'}
+        data = {
+            'name': 'Hacked Name',
+            'properties': {
+                'room_type': 'DELUXE',
+                'floor': 1,
+                'max_guests': 2
+            }
+        }
         
         response = authenticated_client_second.patch(url, data, format='json')
         
@@ -340,6 +353,9 @@ class TestBookingAPI:
             is_active=True,
             is_listed=True,
             properties={
+                'room_type': 'STANDARD',
+                'floor': 1,
+                'max_guests': 2,
                 'bedrooms': 1,
                 'bathrooms': 1
             }

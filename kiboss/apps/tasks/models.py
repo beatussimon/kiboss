@@ -42,6 +42,7 @@ class TaskType(models.TextChoices):
     CORPORATE_ASSET_VERIFICATION = 'CORPORATE_ASSET_VERIFICATION', 'Corporate Asset Verification'
     ASSET_VERIFICATION = 'ASSET_VERIFICATION', 'Asset Verification'
     ASSET_AUDIT = 'ASSET_AUDIT', 'Asset Audit'
+    PROMOTION_VERIFICATION = 'PROMOTION_VERIFICATION', 'Promotion Verification'
     DISPUTE_RESOLUTION = 'DISPUTE_RESOLUTION', 'Dispute Resolution'
     SUPPORT_TICKET = 'SUPPORT_TICKET', 'Support Ticket'
     SUBSCRIPTION_VERIFICATION = 'SUBSCRIPTION_VERIFICATION', 'Subscription Verification'

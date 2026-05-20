@@ -26,6 +26,7 @@ class Role(models.TextChoices):
     MODERATOR = 'MODERATOR', 'Moderator'
     VERIFIER = 'VERIFIER', 'General Verifier'
     CAR_VERIFIER = 'CAR_VERIFIER', 'Car Verifier'
+    PROMOTER = 'PROMOTER', 'Promotion Manager'
     RIDE_BUSINESS_VERIFIER = 'RIDE_BUSINESS_VERIFIER', 'Ride Business Verifier'
     ASSET_BUSINESS_VERIFIER = 'ASSET_BUSINESS_VERIFIER', 'Asset Business Verifier'
 
@@ -81,6 +82,7 @@ class Permission(models.TextChoices):
     AUDIT_VIEW = 'AUDIT_VIEW', 'View Audit Logs'
     SETTINGS_EDIT = 'SETTINGS_EDIT', 'Edit Settings'
     ROLE_MANAGE = 'ROLE_MANAGE', 'Manage Roles'
+    PROMOTION_MANAGE = 'PROMOTION_MANAGE', 'Manage Promotions'
     SUPPORT_TICKET = 'SUPPORT_TICKET', 'Handle Support Tickets'
 
 

@@ -4,6 +4,7 @@ Serializers for Rides API
 from rest_framework import serializers
 from django.db import transaction
 from django.utils import timezone
+from decimal import Decimal
 from kiboss.apps.rides.models import Ride, RideStop, SeatBooking, RideSchedule, RidePhoto
 
 
@@ -482,7 +483,7 @@ class CargoBookingSerializer(serializers.ModelSerializer):
 class CargoBookingCreateSerializer(serializers.Serializer):
     """Serializer for creating cargo bookings with validation."""
     ride_id = serializers.UUIDField()
-    weight = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=0.01)
+    weight = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal('0.01'))
     pickup_stop_id = serializers.UUIDField(required=False, allow_null=True)
     dropoff_stop_id = serializers.UUIDField(required=False, allow_null=True)
     cargo_description = serializers.CharField(required=False, allow_blank=True)

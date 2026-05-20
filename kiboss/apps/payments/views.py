@@ -344,9 +344,13 @@ class ManualPaymentViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
+        base_qs = ManualPayment.objects.select_related(
+            'user', 'payment_method', 'user_payment_method', 'reviewed_by'
+        ).prefetch_related('content_object')
+        
         # Users can see their own submissions, admins can see all
         if self.request.user.is_staff or self.request.user.is_superuser:
-            return ManualPayment.objects.all()
+            return base_qs.all()
         
         # Get bookings where user is the renter/passenger/subscriber
         from kiboss.apps.bookings.models import Booking
@@ -366,11 +370,11 @@ class ManualPaymentViewSet(viewsets.ModelViewSet):
         user_sub_ctype = ContentType.objects.get_for_model(UserSubscription)
         biz_sub_ctype = ContentType.objects.get_for_model(BusinessSubscription)
         
-        return ManualPayment.objects.filter(
+        return base_qs.filter(
             content_type=asset_ctype, object_id__in=user_asset_bookings
-        ) | ManualPayment.objects.filter(
+        ) | base_qs.filter(
             content_type=ride_ctype, object_id__in=user_ride_bookings
-        ) | ManualPayment.objects.filter(
+        ) | base_qs.filter(
             content_type__in=[user_sub_ctype, biz_sub_ctype], object_id__in=list(user_subscriptions) + list(business_subscriptions)
         )
     

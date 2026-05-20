@@ -139,6 +139,11 @@ class VerificationService:
                 entity.is_identity_verified = True
                 entity.save()
 
+            from kiboss.apps.assets.models import PromotedListing
+            if isinstance(entity, PromotedListing):
+                entity.is_active = True
+                entity.save()
+
         elif action == 'REJECT':
             if isinstance(entity, Asset):
                 entity.verification_status = VerificationStatus.REJECTED

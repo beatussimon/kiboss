@@ -73,7 +73,7 @@ class ThreadViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter threads to only show user's threads."""
-        queryset = Thread.objects.prefetch_related('participants').order_by('-updated_at')
+        queryset = Thread.objects.select_related('ride', 'booking', 'booking__asset').prefetch_related('participants', 'messages').order_by('-updated_at')
         
         # Base permissions logic:
         # A user can see threads they participate in.
@@ -779,7 +779,7 @@ class MessageViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter messages to only show user's threads."""
-        queryset = Message.objects.all().order_by('-created_at')
+        queryset = Message.objects.select_related('thread', 'sender').prefetch_related('attachments').order_by('-created_at')
         
         # Filter by thread
         thread_id = self.request.query_params.get('thread')
@@ -879,7 +879,7 @@ class AttachmentViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter attachments to only show user's thread attachments."""
-        queryset = MessageAttachment.objects.all()
+        queryset = MessageAttachment.objects.select_related('message', 'message__thread').all()
         
         # Filter by message thread
         message_id = self.request.query_params.get('message')

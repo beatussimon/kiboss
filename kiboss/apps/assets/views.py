@@ -93,6 +93,78 @@ class AssetViewSet(viewsets.ModelViewSet):
             
         return Response({'status': 'click recorded'})
 
+    @action(detail=False, methods=['get'])
+    def categories(self, request):
+        """Get grouped asset categories and types."""
+        categories = [
+            {
+                'id': 'hospitality',
+                'label': 'Corporate Hospitality',
+                'types': [
+                    {'id': AssetType.HOTEL, 'label': 'Hotel Property'},
+                    {'id': AssetType.RESTAURANT, 'label': 'Restaurant Property'},
+                    {'id': AssetType.HOTEL_ROOM, 'label': 'Hotel Room'},
+                    {'id': AssetType.CONFERENCE_HALL, 'label': 'Conference Hall'},
+                    {'id': AssetType.DINING_TABLE, 'label': 'Dining Table'},
+                    {'id': AssetType.PRIVATE_DINING_ROOM, 'label': 'Private Dining Room'},
+                ]
+            },
+            {
+                'id': 'spaces',
+                'label': 'Residential & Professional Spaces',
+                'types': [
+                    {'id': AssetType.OFFICE_SPACE, 'label': 'Office Space'},
+                    {'id': AssetType.APARTMENT, 'label': 'Apartment'},
+                    {'id': AssetType.ENTIRE_HOME, 'label': 'Entire Home'},
+                    {'id': AssetType.PRIVATE_ROOM, 'label': 'Private Room'},
+                    {'id': AssetType.SHARED_ROOM, 'label': 'Shared Room'},
+                    {'id': AssetType.GUEST_HOUSE, 'label': 'Guest House'},
+                    {'id': AssetType.EVENT_VENUE, 'label': 'Event Venue'},
+                    {'id': AssetType.OUTDOOR_SPACE, 'label': 'Outdoor Space'},
+                    {'id': AssetType.BANQUET_HALL, 'label': 'Banquet Hall'},
+                    {'id': AssetType.ROOFTOP, 'label': 'Rooftop / Terrace'},
+                    {'id': AssetType.RECORDING_STUDIO, 'label': 'Recording Studio'},
+                    {'id': AssetType.PHOTO_STUDIO, 'label': 'Photography Studio'},
+                    {'id': AssetType.DANCE_STUDIO, 'label': 'Dance / Fitness Studio'},
+                    {'id': AssetType.PODCAST_STUDIO, 'label': 'Podcast Studio'},
+                    {'id': AssetType.ART_STUDIO, 'label': 'Art Studio'},
+                    {'id': AssetType.HOT_DESK, 'label': 'Hot Desk'},
+                    {'id': AssetType.MEETING_ROOM, 'label': 'Meeting Room'},
+                ]
+            },
+            {
+                'id': 'transport',
+                'label': 'Storage & Transport',
+                'types': [
+                    {'id': AssetType.VEHICLE, 'label': 'Vehicle'},
+                    {'id': AssetType.BOAT, 'label': 'Boat / Watercraft'},
+                    {'id': AssetType.BICYCLE, 'label': 'Bicycle / E-bike'},
+                    {'id': AssetType.PARKING_SPACE, 'label': 'Parking Space'},
+                    {'id': AssetType.STORAGE_UNIT, 'label': 'Storage Unit'},
+                ]
+            },
+            {
+                'id': 'equipment',
+                'label': 'Specialized Equipment',
+                'types': [
+                    {'id': AssetType.SPORTS_EQUIPMENT, 'label': 'Sports Equipment'},
+                    {'id': AssetType.GENERATOR, 'label': 'Generator'},
+                    {'id': AssetType.MUSICAL_INSTRUMENT, 'label': 'Musical Instrument'},
+                    {'id': AssetType.CAMERA_EQUIPMENT, 'label': 'Camera Equipment'},
+                    {'id': AssetType.TOOL, 'label': 'Tool / Equipment'},
+                ]
+            },
+            {
+                'id': 'service',
+                'label': 'Services',
+                'types': [
+                    {'id': AssetType.TOW_TRUCK, 'label': 'Tow Truck / Breakdown'},
+                    {'id': AssetType.TIME_SERVICE, 'label': 'Time-based Service'},
+                ]
+            },
+        ]
+        return Response(categories)
+
     def get_serializer_class(self):
         if self.action == 'list':
             return AssetListSerializer
@@ -149,15 +221,21 @@ class AssetViewSet(viewsets.ModelViewSet):
                 if context_mode == 'personal' and not is_child and asset_type not in [AssetType.HOTEL, AssetType.RESTAURANT, AssetType.OFFICE_SPACE, AssetType.APARTMENT]:
                     raise PermissionDenied("Corporate Asset accounts can only list corporate properties in unlimited capacity. Switch to a personal/free account to list personal items.")
 
-        # CORPORATE GATE: Creating a Property (Hotel/Restaurant)
-        if asset_type in [AssetType.HOTEL, AssetType.RESTAURANT]:
+        # CORPORATE GATE: Creating a Property (Hotel/Restaurant/Venue)
+        corporate_gate_types = [
+            AssetType.HOTEL, 
+            AssetType.RESTAURANT, 
+            AssetType.EVENT_VENUE, 
+            AssetType.BANQUET_HALL
+        ]
+        if asset_type in corporate_gate_types:
             # 1. Check if user has a Corporate Profile
             try:
                 corp = getattr(user, 'corporate_profile', None)
                 if not corp:
                     raise PermissionDenied("Corporate verification required. Please register as a business first.")
                 if corp.business_category != 'ASSET':
-                    raise PermissionDenied("Only Asset businesses can create Properties (Hotels/Restaurants).")
+                    raise PermissionDenied("Only Asset businesses can create Properties (Hotels/Restaurants/Venues).")
             except PermissionDenied:
                 raise
             except Exception:
@@ -184,8 +262,14 @@ class AssetViewSet(viewsets.ModelViewSet):
             )
             return
 
-        # SERVICE GATE: Creating a Service (Room/Hall) inside a Property
-        if asset_type in [AssetType.HOTEL_ROOM, AssetType.CONFERENCE_HALL, AssetType.DINING_TABLE]:
+        # SERVICE GATE: Creating a Service (Room/Hall/Table) inside a Property
+        auto_verify_child_types = [
+            AssetType.HOTEL_ROOM, 
+            AssetType.CONFERENCE_HALL, 
+            AssetType.DINING_TABLE,
+            AssetType.PRIVATE_DINING_ROOM
+        ]
+        if asset_type in auto_verify_child_types:
             # Auto-verify services
             serializer.save(
                 verification_status=VerificationStatus.VERIFIED,
@@ -197,11 +281,9 @@ class AssetViewSet(viewsets.ModelViewSet):
             )
             return
 
-        # EXISTING LOGIC: Vehicles and other assets
-        if asset_type == AssetType.VEHICLE:
-            # Check if user has a verified corporate profile (already computed above)
-            
-            # Only auto-verify for corporate or staff
+        # VEHICLE & BOAT GATE: Requires registration documents
+        if asset_type in [AssetType.VEHICLE, AssetType.BOAT]:
+            # Only auto-verify for verified corporate or staff
             is_auto_verify = is_verified_corporate or user.is_staff or user.is_superuser
             
             asset = serializer.save(
@@ -217,19 +299,23 @@ class AssetViewSet(viewsets.ModelViewSet):
                 # Create a verification task for staff
                 from kiboss.apps.tasks.models import StaffTask
                 from django.contrib.contenttypes.models import ContentType
+                task_type = 'VEHICLE_VERIFICATION' if asset_type == AssetType.VEHICLE else 'BOAT_VERIFICATION'
+                assigned_role = 'CAR_VERIFIER' if asset_type == AssetType.VEHICLE else 'VERIFIER'
                 StaffTask.objects.create(
-                    title=f'Verify vehicle: {asset.name}',
-                    description=f'New vehicle registration from {user.email}.',
-                    task_type='VEHICLE_VERIFICATION',
+                    title=f'Verify {asset_type.lower()}: {asset.name}',
+                    description=f'New {asset_type.lower()} registration from {user.email}.',
+                    task_type=task_type,
                     priority='MEDIUM',
-                    assigned_role='CAR_VERIFIER',
+                    assigned_role=assigned_role,
                     content_type=ContentType.objects.get_for_model(asset),
                     object_id=asset.id,
                 )
             return
-        else:
-            # Other assets auto-verified for now
-            serializer.save(
+
+        # SPACE GATE: Requires address/identity verification
+        space_types = [AssetType.OFFICE_SPACE, AssetType.PARKING_SPACE, AssetType.STORAGE_UNIT]
+        if asset_type in space_types:
+            asset = serializer.save(
                 verification_status=VerificationStatus.PENDING,
                 is_active=True,
                 is_listed=serializer.validated_data.get('is_listed', True)
@@ -237,16 +323,64 @@ class AssetViewSet(viewsets.ModelViewSet):
             # Create a verification task for staff
             from kiboss.apps.tasks.models import StaffTask
             from django.contrib.contenttypes.models import ContentType
-            asset = serializer.instance
             StaffTask.objects.create(
-                title=f'Verify asset: {asset.name}',
-                description=f'New listing from {user.email}. Asset type: {asset.get_asset_type_display()}',
-                task_type='ASSET_VERIFICATION',
+                title=f'Verify space: {asset.name}',
+                description=f'New {asset.get_asset_type_display()} from {user.email}. Requires address check.',
+                task_type='SPACE_VERIFICATION',
                 priority='MEDIUM',
                 assigned_role='VERIFIER',
                 content_type=ContentType.objects.get_for_model(asset),
                 object_id=asset.id,
             )
+            return
+
+        # LOW-RISK GATE: Auto-list (active) but pending verification
+        low_risk_types = [
+            AssetType.BICYCLE, 
+            AssetType.TOOL, 
+            AssetType.SPORTS_EQUIPMENT, 
+            AssetType.MUSICAL_INSTRUMENT, 
+            AssetType.CAMERA_EQUIPMENT, 
+            AssetType.GENERATOR
+        ]
+        if asset_type in low_risk_types:
+            asset = serializer.save(
+                verification_status=VerificationStatus.PENDING,
+                is_active=True,
+                is_listed=serializer.validated_data.get('is_listed', True)
+            )
+            # Create a low-priority verification task for staff
+            from kiboss.apps.tasks.models import StaffTask
+            from django.contrib.contenttypes.models import ContentType
+            StaffTask.objects.create(
+                title=f'Verify equipment: {asset.name}',
+                description=f'New {asset.get_asset_type_display()} from {user.email}.',
+                task_type='EQUIPMENT_VERIFICATION',
+                priority='LOW',
+                assigned_role='VERIFIER',
+                content_type=ContentType.objects.get_for_model(asset),
+                object_id=asset.id,
+            )
+            return
+
+        # DEFAULT: Generic assets
+        asset = serializer.save(
+            verification_status=VerificationStatus.PENDING,
+            is_active=True,
+            is_listed=serializer.validated_data.get('is_listed', True)
+        )
+        # Create a verification task for staff
+        from kiboss.apps.tasks.models import StaffTask
+        from django.contrib.contenttypes.models import ContentType
+        StaffTask.objects.create(
+            title=f'Verify asset: {asset.name}',
+            description=f'New listing from {user.email}. Asset type: {asset.get_asset_type_display()}',
+            task_type='ASSET_VERIFICATION',
+            priority='MEDIUM',
+            assigned_role='VERIFIER',
+            content_type=ContentType.objects.get_for_model(asset),
+            object_id=asset.id,
+        )
 
     def perform_update(self, serializer):
         asset = self.get_object()
@@ -270,30 +404,29 @@ class AssetViewSet(viewsets.ModelViewSet):
         asset = self.get_object()
         if asset.owner_id != request.user.id and not request.user.is_superuser:
             raise PermissionDenied('Only the asset owner can delete this asset')
+            
+        from kiboss.apps.bookings.models import Booking
+        ongoing = Booking.objects.filter(
+            asset=asset,
+            status='ACTIVE'
+        ).exists()
+        if ongoing:
+            raise PermissionDenied("Cannot delete asset while it has an ongoing active booking.")
+            
         asset.is_active = False
         asset.is_listed = False
         asset.save(update_fields=['is_active', 'is_listed', 'updated_at'])
+        
+        # Schedule background task to handle upcoming cancellations
+        try:
+            from kiboss.apps.assets.tasks import handle_asset_deactivation
+            handle_asset_deactivation.delay(asset.id)
+        except ImportError:
+            pass
+            
         return Response(status=status.HTTP_204_NO_CONTENT)
     
     def get_queryset(self):
-        from kiboss.apps.users.models import CorporateProfile
-        from kiboss.apps.assets.models import PromotedListing
-        has_verified_corp = Exists(
-            CorporateProfile.objects.filter(
-                user_id=OuterRef('owner_id'),
-                verification_status='VERIFIED'
-            )
-        )
-        
-        is_promoted_q = Exists(
-            PromotedListing.objects.filter(
-                asset=OuterRef('pk'),
-                is_active=True,
-                starts_at__lte=timezone.now(),
-                ends_at__gte=timezone.now()
-            )
-        )
-        
         queryset = Asset.objects.select_related(
             'owner', 'owner__profile', 'owner__corporate_profile', 'verified_by'
         ).prefetch_related(
@@ -301,14 +434,6 @@ class AssetViewSet(viewsets.ModelViewSet):
             'pricing_rules',
             'availability_rules',
             'capacities',
-        ).annotate(
-            visibility_boost=Case(
-                When(has_verified_corp, then=Value(2.0)),
-                When(owner__account_tier='PLUS', then=Value(1.5)),
-                default=Value(1.0),
-                output_field=FloatField(),
-            ),
-            is_promoted=is_promoted_q
         ).order_by('-is_promoted', '-visibility_boost', '-created_at')
         
         # Filter by asset type
@@ -368,6 +493,14 @@ class AssetViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(is_corporate=False)
         elif context_param == 'corporate':
             queryset = queryset.filter(is_corporate=True)
+
+        # Filter by promoted
+        promoted_param = self.request.query_params.get('promoted')
+        if promoted_param is not None:
+            if promoted_param.lower() == 'true':
+                queryset = queryset.filter(is_promoted=True)
+            elif promoted_param.lower() == 'false':
+                queryset = queryset.filter(is_promoted=False)
         
         return queryset
     
@@ -617,7 +750,7 @@ class AssetPhotoViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        queryset = AssetPhoto.objects.all().order_by('order')
+        queryset = AssetPhoto.objects.select_related('asset').order_by('order')
         asset_id = self.request.query_params.get('asset')
         if asset_id:
             queryset = queryset.filter(asset_id=asset_id)
@@ -633,7 +766,7 @@ class AssetPricingViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        queryset = AssetPricing.objects.all().order_by('-priority')
+        queryset = AssetPricing.objects.select_related('asset').order_by('-priority')
         asset_id = self.request.query_params.get('asset')
         if asset_id:
             queryset = queryset.filter(asset_id=asset_id)
@@ -653,7 +786,7 @@ class AssetAvailabilityViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        queryset = AssetAvailability.objects.all()
+        queryset = AssetAvailability.objects.select_related('asset').all()
         asset_id = self.request.query_params.get('asset')
         if asset_id:
             queryset = queryset.filter(asset_id=asset_id)
@@ -677,13 +810,45 @@ class PromotedListingViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         from kiboss.apps.assets.models import PromotedListing
         from django.utils import timezone
+        
+        user = self.request.user
+        asset_id = self.request.query_params.get('asset')
         now = timezone.now()
-        queryset = PromotedListing.objects.filter(
-            is_active=True,
-            starts_at__lte=now,
-            ends_at__gte=now
-        ).select_related('asset').prefetch_related('asset__photos', 'asset__pricing_rules')
-        return queryset
+        
+        # Base queryset with necessary relations
+        queryset = PromotedListing.objects.select_related('asset').prefetch_related(
+            'asset__photos', 'asset__pricing_rules'
+        )
+
+        # PUBLIC LOGIC (or when specifically requested for display)
+        # Even if staff is logged in, the homepage list should only show ACTIVE items
+        is_public_view = self.action == 'list' and not self.request.query_params.get('owner')
+        
+        if is_public_view:
+            queryset = queryset.filter(
+                is_active=True,
+                starts_at__lte=now,
+                ends_at__gte=now
+            )
+        elif user.is_authenticated:
+            if user.is_staff:
+                # Staff sees all in admin/task contexts
+                pass
+            else:
+                # Users see only their own asset promotions
+                queryset = queryset.filter(asset__owner=user)
+        else:
+            # Anonymous users always see only active ones
+            queryset = queryset.filter(
+                is_active=True,
+                starts_at__lte=now,
+                ends_at__gte=now
+            )
+            
+        if asset_id:
+            queryset = queryset.filter(asset_id=asset_id)
+            
+        return queryset.order_by('-created_at')
 
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
     def activate(self, request, pk=None):
@@ -706,9 +871,9 @@ class PromotedListingViewSet(viewsets.ModelViewSet):
                 f"for '{promotion.asset.name}'. "
                 f"Amount paid: {promotion.amount_paid}. Ref: {promotion.payment_reference}."
             ),
-            task_type=TaskType.CUSTOM_TASK,
+            task_type=TaskType.PROMOTION_VERIFICATION,
             priority=TaskPriority.MEDIUM,
-            assigned_role='OPS',
+            assigned_role='PROMOTER',
             content_type=ContentType.objects.get_for_model(PromotedListing),
             object_id=promotion.id,
             created_by=self.request.user,

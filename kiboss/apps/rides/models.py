@@ -198,13 +198,14 @@ class Ride(models.Model):
     )
     
     # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
         db_table = 'rides'
         verbose_name = 'Ride'
         verbose_name_plural = 'Rides'
+        ordering = ['-created_at']
         indexes = [
             models.Index(fields=['status']),
             models.Index(fields=['driver']),
@@ -297,7 +298,7 @@ class RidePhoto(models.Model):
     order = models.PositiveIntegerField(default=0)
     is_primary = models.BooleanField(default=False)
     
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     
     class Meta:
         db_table = 'ride_photos'
@@ -439,7 +440,7 @@ class SeatBooking(models.Model):
     cancellation_reason = models.TextField(blank=True)
     
     # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
@@ -560,7 +561,7 @@ class RideSchedule(models.Model):
     is_active = models.BooleanField(default=True)
     
     # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
@@ -698,7 +699,7 @@ class CargoBooking(models.Model):
     cancellation_reason = models.TextField(blank=True)
     
     # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:

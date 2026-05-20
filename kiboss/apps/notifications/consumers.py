@@ -3,15 +3,22 @@ import logging
 logger = logging.getLogger(__name__)
 
 import json
+import asyncio
 from channels.generic.websocket import AsyncWebsocketConsumer
 
 class NotificationConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        self.user = self.scope["user"]
+        # Accept the connection FIRST so the handshake completes
+        await self.accept()
+        logger.debug("DEBUG: NotificationConsumer connection accepted")
+
+        self.user = self.scope.get("user")
         logger.debug(f"DEBUG: NotificationConsumer connecting, user: {self.user}")
-        if self.user.is_anonymous:
+        
+        if not self.user or self.user.is_anonymous:
             logger.debug("DEBUG: NotificationConsumer rejecting anonymous user")
-            await self.close()
+            await self.send(text_data=json.dumps({'error': 'Authentication required'}))
+            # DO NOT close the socket here. Let the frontend close it to prevent TCP RST 1006 error.
             return
 
         self.user_id = str(self.user.id)
@@ -23,9 +30,6 @@ class NotificationConsumer(AsyncWebsocketConsumer):
             self.room_group_name,
             self.channel_name
         )
-
-        await self.accept()
-        logger.debug("DEBUG: NotificationConsumer connection accepted")
 
     async def disconnect(self, close_code):
         # Leave room group

@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     'kiboss.apps.audits',
     'kiboss.apps.rbac',
     'kiboss.apps.tasks',
+    'kiboss.apps.promotions',
 ]
 
 MIDDLEWARE = [
@@ -299,16 +300,25 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'kiboss.apps.users.tasks.expire_subscriptions',
         'schedule': crontab(hour=2, minute=0),
     },
+    'cleanup-expired-promotions-hourly': {
+        'task': 'kiboss.apps.assets.tasks.cleanup_expired_promotions',
+        'schedule': crontab(minute=0),  # Run every hour
+    },
 }
 
 
 if not DEBUG:
-    SECURE_SSL_REDIRECT = True
-    SECURE_HSTS_SECONDS = 31536000
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
+    # Avoid HSTS/SSL footguns when testing production settings on localhost
+    _is_local = any(host in ALLOWED_HOSTS for host in ['127.0.0.1', 'localhost', '*'])
+    
+    if not _is_local:
+        SECURE_SSL_REDIRECT = True
+        SECURE_HSTS_SECONDS = 31536000
+        SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+        SECURE_HSTS_PRELOAD = True
+        SESSION_COOKIE_SECURE = True
+        CSRF_COOKIE_SECURE = True
+        
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
     X_FRAME_OPTIONS = 'DENY'
